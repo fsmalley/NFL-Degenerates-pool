@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NFL Results {{season}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <b>🏈 NFL RESULTS</b>
+  <a href="/draft">DRAFT TEAM POOL →</a>
+</header>
+
+<main>
+<h1>NFL Weekly Results</h1>
+<p>Choose a week. Completed games show the winner and point differential.</p>
+
+<div class="weeks">
+{% for w in range(1, 19) %}
+<a class="{% if w == week %}active{% endif %}" href="/?week={{w}}">Week {{w}}</a>
+{% endfor %}
+</div>
+
+<section class="card">
+<table>
+<thead>
+<tr>
+  <th>Game</th>
+  <th>Score</th>
+  <th>Winner</th>
+  <th>Point Differential</th>
+</tr>
+</thead>
+<tbody id="games">
+<tr><td colspan="4">Loading…</td></tr>
+</tbody>
+</table>
+</section>
+
+<p id="notice"></p>
+</main>
+
+<script>
+const week = {{week}};
+
+fetch("/api/week/" + week)
+.then(r => r.json())
+.then(data => {
+    if (data.sync_error) {
+        notice.textContent = "Live refresh failed; cached data shown. " + data.sync_error;
+    }
+
+    if (!data.games.length) {
+        games.innerHTML = '<tr><td colspan="4">No games found for this week.</td></tr>';
+        return;
+    }
+
+    games.innerHTML = data.games.map(g => {
+        let winner = "—";
+        if (g.winner === "TIE") winner = "TIE";
+        else if (g.winner) winner = g.winner === g.away_team ? g.away_name : g.home_name;
+
+        let diff = g.margin == null ? "—" : (g.margin === 0 ? "0" : "+" + g.margin);
+
+        return `<tr>
+          <td>${g.away_name} @ ${g.home_name}</td>
+          <td>${g.away_score ?? "—"} — ${g.home_score ?? "—"}</td>
+          <td>${winner}</td>
+          <td><b>${diff}</b></td>
+        </tr>`;
+    }).join("");
+});
+</script>
+</body>
+</html>
