@@ -84,3 +84,20 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .survivor-form .team-field,.survivor-submit{grid-column:auto}
   .survivor-rules{grid-template-columns:1fr}
 }
+
+
+/* V2.0 Survivor controls */
+.commissioner-override{grid-column:1 / -1;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.override-check{display:flex!important;flex-direction:row!important;align-items:center;gap:7px!important;font-size:12px;font-weight:800;color:var(--muted)}
+.override-check input{width:auto!important}
+.commissioner-override>input{max-width:260px;padding:10px 12px;border:1px solid #cbd3dd;border-radius:8px}
+.season-board{min-width:1780px}
+.season-board th:first-child,.season-board td:first-child{position:sticky;left:0;background:#fff;z-index:2;min-width:155px}
+.season-board th:first-child{background:#f5f7fa;z-index:4}
+.season-board th:nth-child(2),.season-board td:nth-child(2){position:sticky;left:155px;background:#fff;z-index:2;min-width:105px}
+.season-board th:nth-child(2){background:#f5f7fa;z-index:4}
+.board-pick{display:inline-flex;min-width:58px;justify-content:center;padding:6px 7px;border-radius:7px;font-size:11px;font-weight:900}
+.board-pick.won{background:var(--green-bg);color:var(--green)}
+.board-pick.lost{background:var(--red-bg);color:var(--red)}
+.board-pick.waiting{background:#edf1f5;color:#596375}
+.board-pick.no-pick{color:#9da6b2;background:#f5f7f9}

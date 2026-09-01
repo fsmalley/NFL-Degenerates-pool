@@ -51,3 +51,15 @@ create index if not exists survivor_picks_player_idx
   on public.survivor_picks (season, player_key);
 
 alter table public.survivor_picks enable row level security;
+
+
+
+create table if not exists public.survivor_players (
+  player_key text primary key,
+  player_name text not null,
+  pin_hash text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.survivor_players enable row level security;

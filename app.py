@@ -1,7 +1,11 @@
 import os
+import hashlib
+import hmac
+import secrets
 import datetime as dt
 import requests
 from flask import Flask, render_template, jsonify, request
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 
@@ -197,6 +201,347 @@ def draft_data():
     return players
 
 
+
+def normalize_player_key(name):
+    return " ".join(str(name or "").lower().split())
+
+
+def parse_game_datetime(value):
+    """Best-effort parse of an ISO-like kickoff timestamp."""
+    value = str(value or "").strip()
+    if not value or len(value) <= 10:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc)
+    except Exception:
+        return None
+
+
+def game_has_started(game):
+    status = str(game.get("status") or "").lower()
+    if any(word in status for word in ("final", "complete", "closed", "in_progress", "in progress", "live", "halftime")):
+        return True
+    if game.get("winner") is not None:
+        return True
+
+    kickoff = parse_game_datetime(game.get("game_date"))
+    if kickoff is not None and dt.datetime.now(dt.timezone.utc) >= kickoff:
+        return True
+    return False
+
+
+def team_game(team, games):
+    for g in games:
+        if team in (g.get("away_team"), g.get("home_team")):
+            return g
+    return None
+
+
+def get_survivor_player(player_key):
+    rows = sb_get(
+        "survivor_players",
+        {
+            "select": "*",
+            "season": f"eq.{SEASON}",
+            "player_key": f"eq.{player_key}",
+            "limit": "1"
+        }
+    )
+    return rows[0] if rows else None
+
+
+def ensure_survivor_player(player_name, player_key, pin):
+    player = get_survivor_player(player_key)
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    if player:
+        if not check_password_hash(player.get("pin_hash") or "", pin):
+            raise PermissionError("Incorrect Survivor PIN for this player.")
+        if player.get("player_name") != player_name:
+            sb_upsert(
+                "survivor_players",
+                [{
+                    "season": SEASON,
+                    "player_key": player_key,
+                    "player_name": player_name,
+                    "pin_hash": player["pin_hash"],
+                    "updated_at": now
+                }],
+                "season,player_key"
+            )
+        return
+
+    if len(pin) < 4:
+        raise ValueError("Choose a Survivor PIN with at least 4 characters.")
+
+    sb_upsert(
+        "survivor_players",
+        [{
+            "season": SEASON,
+            "player_key": player_key,
+            "player_name": player_name,
+            "pin_hash": generate_password_hash(pin),
+            "created_at": now,
+            "updated_at": now
+        }],
+        "season,player_key"
+    )
+
+
+def survivor_board_data():
+    picks = sb_get(
+        "survivor_picks",
+        {
+            "select": "*",
+            "season": f"eq.{SEASON}",
+            "order": "player_name.asc,week.asc"
+        }
+    )
+    players = sb_get(
+        "survivor_players",
+        {
+            "select": "player_key,player_name",
+            "season": f"eq.{SEASON}",
+            "order": "player_name.asc"
+        }
+    )
+    games = sb_get("games", {"select": "*", "season": f"eq.{SEASON}"})
+
+    game_by_week = {}
+    for g in games:
+        game_by_week.setdefault(int(g.get("week") or 0), []).append(g)
+
+    picks_by_player = {}
+    for p in picks:
+        picks_by_player.setdefault(p["player_key"], {})[int(p["week"])] = p
+
+    # Include legacy pick-only players if needed.
+    known = {p["player_key"] for p in players}
+    for p in picks:
+        if p["player_key"] not in known:
+            players.append({"player_key": p["player_key"], "player_name": p["player_name"]})
+            known.add(p["player_key"])
+
+    board = []
+    for player in players:
+        key = player["player_key"]
+        weekly = {}
+        alive = True
+        eliminated_week = None
+
+        for week in range(1, 19):
+            pick = picks_by_player.get(key, {}).get(week)
+            if not pick:
+                weekly[str(week)] = {"team": "", "status": "NO PICK"}
+                continue
+
+            outcome = survivor_pick_result((pick.get("team") or "").upper(), game_by_week.get(week, []))
+            status = outcome["status"]
+            weekly[str(week)] = {
+                "team": pick.get("team") or "",
+                "status": status,
+                "score": outcome.get("score")
+            }
+
+            if status == "ELIMINATED" and alive:
+                alive = False
+                eliminated_week = week
+
+        board.append({
+            "player_key": key,
+            "player_name": player.get("player_name") or key,
+            "status": "ALIVE" if alive else "ELIMINATED",
+            "eliminated_week": eliminated_week,
+            "weekly": weekly
+        })
+
+    board.sort(key=lambda x: (x["status"] != "ALIVE", x["player_name"].lower()))
+    return board
+
+
+
+def hash_survivor_pin(pin, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        pin.encode("utf-8"),
+        salt.encode("utf-8"),
+        150000
+    ).hex()
+    return f"{salt}${digest}"
+
+
+def verify_survivor_pin(pin, stored):
+    if not stored or "$" not in stored:
+        return False
+    salt, expected = stored.split("$", 1)
+    actual = hash_survivor_pin(pin, salt).split("$", 1)[1]
+    return hmac.compare_digest(actual, expected)
+
+
+def get_survivor_player(player_key):
+    rows = sb_get(
+        "survivor_players",
+        {"select": "*", "player_key": f"eq.{player_key}", "limit": "1"}
+    )
+    return rows[0] if rows else None
+
+
+def parse_game_datetime(value):
+    """Best-effort ISO date parser. Naive timestamps are treated as UTC."""
+    if not value:
+        return None
+    try:
+        raw = str(value).strip()
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = dt.datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc)
+    except Exception:
+        return None
+
+
+def team_game_for_week(team, week):
+    games = get_week(week)
+    for g in games:
+        if team in (g.get("away_team"), g.get("home_team")):
+            return g
+    return None
+
+
+def pick_is_locked(team, week):
+    game = team_game_for_week(team, week)
+    if not game:
+        return False, None
+
+    kickoff = parse_game_datetime(game.get("game_date"))
+    if kickoff is None:
+        # If no parseable kickoff exists but the game already has a score/result,
+        # consider it locked.
+        played = (
+            game.get("away_score") is not None or
+            game.get("home_score") is not None or
+            game.get("winner") is not None
+        )
+        return played, None
+
+    return dt.datetime.now(dt.timezone.utc) >= kickoff, kickoff
+
+
+def survivor_all_picks():
+    return sb_get(
+        "survivor_picks",
+        {
+            "select": "*",
+            "season": f"eq.{SEASON}",
+            "order": "player_name.asc,week.asc"
+        }
+    )
+
+
+def survivor_board_data():
+    picks = survivor_all_picks()
+    games_by_week = {}
+    players = {}
+
+    for p in picks:
+        key = p.get("player_key")
+        if not key:
+            continue
+        entry = players.setdefault(key, {
+            "player_name": p.get("player_name") or key,
+            "weeks": {},
+            "status": "ALIVE",
+            "eliminated_week": None
+        })
+
+        week = int(p.get("week") or 0)
+        if week not in games_by_week:
+            games_by_week[week] = get_week(week)
+
+        outcome = survivor_pick_result((p.get("team") or "").upper(), games_by_week[week])
+        entry["weeks"][str(week)] = {
+            "team": p.get("team"),
+            "team_name": TEAMS.get(p.get("team"), p.get("team")),
+            "result": outcome["status"]
+        }
+
+        if outcome["status"] == "ELIMINATED":
+            if entry["eliminated_week"] is None or week < entry["eliminated_week"]:
+                entry["eliminated_week"] = week
+                entry["status"] = "OUT"
+
+    rows = list(players.values())
+    rows.sort(key=lambda p: (0 if p["status"] == "ALIVE" else 1, p["player_name"].lower()))
+    return rows
+
+
+def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
+    player_key = " ".join(player_name.lower().split())
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    if not admin_override:
+        if not pin or not pin.isdigit() or not (4 <= len(pin) <= 12):
+            raise ValueError("Enter your 4–12 digit Survivor PIN.")
+
+        player = get_survivor_player(player_key)
+        if player:
+            if not verify_survivor_pin(pin, player.get("pin_hash")):
+                raise PermissionError("Incorrect Survivor PIN.")
+        else:
+            sb_upsert("survivor_players", [{
+                "player_key": player_key,
+                "player_name": player_name,
+                "pin_hash": hash_survivor_pin(pin),
+                "created_at": now,
+                "updated_at": now
+            }], "player_key")
+
+    history = survivor_player_history(player_key)
+    existing = next((r for r in history if int(r.get("week") or 0) == week), None)
+
+    # Once an existing pick's selected game has started, the player cannot change it.
+    if existing and not admin_override:
+        existing_team = (existing.get("team") or "").upper()
+        locked, _ = pick_is_locked(existing_team, week)
+        if locked:
+            raise PermissionError(
+                f"Week {week} is locked because your selected team's game has started."
+            )
+
+    # New submissions are also blocked if the newly selected team's game has started.
+    if not admin_override:
+        locked, _ = pick_is_locked(team, week)
+        if locked:
+            raise PermissionError(
+                f"{TEAMS.get(team, team)} is already locked because its Week {week} game has started."
+            )
+
+    for old in history:
+        if int(old.get("week") or 0) != week and (old.get("team") or "").upper() == team:
+            if not admin_override:
+                raise ValueError(
+                    f"You already used {TEAMS.get(team, team)} in Week {old.get('week')}. "
+                    "Survivor teams cannot be reused."
+                )
+
+    row = {
+        "season": SEASON,
+        "week": week,
+        "player_name": player_name,
+        "player_key": player_key,
+        "team": team,
+        "submitted_at": (existing or {}).get("submitted_at") or now,
+        "updated_at": now
+    }
+    sb_upsert("survivor_picks", [row], "season,week,player_key")
+    return row
+
 def survivor_pick_result(team, games):
     """Return survivor outcome details for one team pick."""
     for g in games:
@@ -270,7 +615,7 @@ def survivor_player_history(player_key):
     rows = sb_get(
         "survivor_picks",
         {
-            "select": "week,team,player_name",
+            "select": "week,team,player_name,player_key",
             "season": f"eq.{SEASON}",
             "player_key": f"eq.{player_key}",
             "order": "week.asc"
@@ -296,6 +641,10 @@ def survivor():
 def survivor_results():
     week=max(1,min(18,request.args.get("week",1,type=int)))
     return render_template("survivor_results.html",season=SEASON,week=week)
+
+@app.route("/survivor/board")
+def survivor_board():
+    return render_template("survivor_board.html",season=SEASON)
 
 @app.route("/health")
 def health():
@@ -371,9 +720,10 @@ def api_draft():
 @app.route("/api/survivor/pick", methods=["POST"])
 def api_survivor_pick():
     payload = request.get_json(silent=True) or {}
-
     player_name = str(payload.get("player_name", "")).strip()
+    pin = str(payload.get("pin", "")).strip()
     team = str(payload.get("team", "")).strip().upper()
+
     try:
         week = int(payload.get("week", 0))
     except Exception:
@@ -388,29 +738,15 @@ def api_survivor_pick():
     if team not in TEAMS:
         return jsonify({"ok": False, "error": "Choose a valid NFL team."}), 400
 
-    player_key = " ".join(player_name.lower().split())
-    history = survivor_player_history(player_key)
-
-    # A team may not be reused in a different week.
-    for old in history:
-        if int(old.get("week") or 0) != week and (old.get("team") or "").upper() == team:
-            return jsonify({
-                "ok": False,
-                "error": f"You already used {TEAMS.get(team, team)} in Week {old.get('week')}. Survivor teams cannot be reused."
-            }), 400
-
-    now = dt.datetime.utcnow().isoformat()
-    row = {
-        "season": SEASON,
-        "week": week,
-        "player_name": player_name,
-        "player_key": player_key,
-        "team": team,
-        "submitted_at": now,
-        "updated_at": now
-    }
-
-    sb_upsert("survivor_picks", [row], "season,week,player_key")
+    try:
+        row = save_survivor_pick(player_name, week, team, pin=pin, admin_override=False)
+    except PermissionError as e:
+        return jsonify({"ok": False, "error": str(e)}), 403
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        print(f"SURVIVOR SAVE ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok": False, "error": "Could not save the Survivor pick."}), 500
 
     return jsonify({
         "ok": True,
@@ -419,17 +755,121 @@ def api_survivor_pick():
     })
 
 
+@app.route("/api/survivor/admin/pick", methods=["POST"])
+def api_survivor_admin_pick():
+    payload = request.get_json(silent=True) or {}
+
+    if not ADMIN_PASSWORD or payload.get("password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Incorrect commissioner password."}), 403
+
+    player_name = str(payload.get("player_name", "")).strip()
+    team = str(payload.get("team", "")).strip().upper()
+    try:
+        week = int(payload.get("week", 0))
+    except Exception:
+        week = 0
+
+    if not player_name or week < 1 or week > 18 or team not in TEAMS:
+        return jsonify({"ok": False, "error": "Player, week, and team are required."}), 400
+
+    try:
+        row = save_survivor_pick(player_name, week, team, admin_override=True)
+        return jsonify({
+            "ok": True,
+            "message": f"Commissioner override saved for {player_name}, Week {week}.",
+            "pick": row
+        })
+    except Exception as e:
+        print(f"SURVIVOR ADMIN SAVE ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok": False, "error": "Commissioner override could not be saved."}), 500
+
+
 @app.route("/api/survivor/history")
 def api_survivor_history():
     player_name = str(request.args.get("player", "")).strip()
     if not player_name:
-        return jsonify({"history": []})
+        return jsonify({"history": [], "used_teams": []})
 
     player_key = " ".join(player_name.lower().split())
     rows = survivor_player_history(player_key)
+    used = []
+
     for row in rows:
-        row["team_name"] = TEAMS.get(row.get("team"), row.get("team"))
-    return jsonify({"history": rows})
+        team = (row.get("team") or "").upper()
+        row["team_name"] = TEAMS.get(team, team)
+        locked, kickoff = pick_is_locked(team, int(row.get("week") or 0))
+        row["locked"] = locked
+        row["kickoff"] = kickoff.isoformat() if kickoff else None
+        if team:
+            used.append(team)
+
+    return jsonify({"history": rows, "used_teams": used})
+
+
+@app.route("/api/survivor/board")
+def api_survivor_board():
+    try:
+        for week in range(1, 19):
+            try:
+                sync_week(week)
+            except Exception:
+                pass
+        board = survivor_board_data()
+        return jsonify({
+            "players": board,
+            "alive": sum(1 for p in board if p["status"] == "ALIVE"),
+            "out": sum(1 for p in board if p["status"] == "OUT")
+        })
+    except Exception as e:
+        print(f"SURVIVOR BOARD ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"players": [], "alive": 0, "out": 0, "error": str(e)}), 500
+
+
+
+@app.route("/api/survivor/week/<int:week>")
+def api_survivor_week(week):
+    week=max(1,min(18,week))
+    try:
+        try:
+            sync_week(week)
+        except Exception:
+            pass
+        games = get_week(week)
+        teams = []
+        for g in games:
+            kickoff = parse_game_datetime(g.get("game_date"))
+            locked = False
+            if kickoff:
+                locked = dt.datetime.now(dt.timezone.utc) >= kickoff
+            elif g.get("winner") is not None or g.get("away_score") is not None or g.get("home_score") is not None:
+                locked = True
+
+            away = g.get("away_team")
+            home = g.get("home_team")
+            if away:
+                teams.append({
+                    "team": away,
+                    "team_name": TEAMS.get(away, away),
+                    "opponent": home,
+                    "opponent_name": TEAMS.get(home, home),
+                    "kickoff": kickoff.isoformat() if kickoff else g.get("game_date"),
+                    "locked": locked
+                })
+            if home:
+                teams.append({
+                    "team": home,
+                    "team_name": TEAMS.get(home, home),
+                    "opponent": away,
+                    "opponent_name": TEAMS.get(away, away),
+                    "kickoff": kickoff.isoformat() if kickoff else g.get("game_date"),
+                    "locked": locked
+                })
+
+        teams.sort(key=lambda x: x["team_name"])
+        return jsonify({"week": week, "teams": teams})
+    except Exception as e:
+        print(f"SURVIVOR WEEK ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"week": week, "teams": [], "error": str(e)}), 500
 
 
 @app.route("/api/survivor/results/<int:week>")
@@ -460,6 +900,34 @@ def api_survivor_results(week):
         "counts": counts,
         "sync_error": sync_error
     })
+
+
+
+@app.route("/api/survivor/board")
+def api_survivor_board():
+    # Refresh all weeks that have picks, but do not fail the board if an API refresh has an issue.
+    try:
+        pick_rows = sb_get("survivor_picks", {"select": "week", "season": f"eq.{SEASON}"})
+        for week in sorted({int(r.get("week") or 0) for r in pick_rows if r.get("week")}):
+            try:
+                sync_week(week)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        board = survivor_board_data()
+        return jsonify({
+            "players": board,
+            "counts": {
+                "total": len(board),
+                "alive": sum(1 for p in board if p["status"] == "ALIVE"),
+                "eliminated": sum(1 for p in board if p["status"] == "ELIMINATED")
+            }
+        })
+    except Exception as e:
+        return jsonify({"players": [], "counts": {"total":0,"alive":0,"eliminated":0}, "error": str(e)}), 500
 
 
 if __name__=="__main__":
