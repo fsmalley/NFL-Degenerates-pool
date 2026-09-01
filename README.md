@@ -1,4 +1,4 @@
-# NFL Results Dashboard V1.8 - Supabase Connection Fix
+# NFL Results Dashboard V1.9 - Supabase Connection Fix
 
 1. Create a free Supabase project.
 2. Open SQL Editor and run `supabase_schema.sql`.
@@ -24,14 +24,14 @@ Health check:
 IMPORTANT: Keep the Supabase service_role key private. It belongs only in Render's environment variables.
 
 
-## V1.8 connection fix
+## V1.9 connection fix
 
 - Supports the newer `sb_secret_...` Supabase secret key and the legacy `service_role` key.
 - Automatically removes `/rest/v1` if it was included in `SUPABASE_URL`.
 - Writes the exact Supabase health-check error to Render logs if the connection still fails.
 
 
-## V1.8 Draft Team Pool improvements
+## V1.9 Draft Team Pool improvements
 
 - Public leaderboard is read-only by default.
 - Commissioner Edit mode verifies the admin password before enabling edits.
@@ -44,9 +44,39 @@ IMPORTANT: Keep the Supabase service_role key private. It belongs only in Render
 - Existing Render + Supabase environment variables are unchanged.
 
 
-## V1.8 visual refresh
+## V1.9 visual refresh
 
 - Dark fantasy-football dashboard styling.
 - Gold accent treatment and stronger first-place emphasis.
 - More polished summary cards, team pills, score badges, weekly scorecards, and mobile layout.
 - No database or Render/Supabase configuration changes required.
+
+
+## V1.9 Survivor Pool
+
+New pages:
+
+- `/survivor` — player weekly pick entry.
+- `/survivor/results` — weekly Survivor results.
+
+Survivor behavior:
+
+- Players enter their name, NFL week, and one team selection.
+- Submitting again with the same player name and week updates that week's pick.
+- The same NFL team cannot be used by the same player in another week.
+- A win = `SURVIVED`.
+- A loss or tie = `ELIMINATED`.
+- Games without a final result = `PENDING`.
+- Results are calculated automatically from the existing NFL game data.
+
+### Required V1.9 database update
+
+Before deploying V1.9, open the Supabase SQL Editor and run:
+
+`survivor_schema_update.sql`
+
+This creates the persistent `survivor_picks` table. Existing Draft Team Pool and NFL game data are not changed.
+
+### Current submission model
+
+V1.9 is designed as an open player-entry page. A player can correct their own weekly pick by entering the same name and week again. There is not yet a player PIN/login or automatic game-start lock. Those can be added in a later version if desired.

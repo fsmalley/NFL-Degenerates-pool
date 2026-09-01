@@ -196,6 +196,88 @@ def draft_data():
 
     return players
 
+
+def survivor_pick_result(team, games):
+    """Return survivor outcome details for one team pick."""
+    for g in games:
+        if team not in (g.get("away_team"), g.get("home_team")):
+            continue
+
+        opponent = g.get("home_team") if team == g.get("away_team") else g.get("away_team")
+        decided = g.get("away_score") is not None and g.get("home_score") is not None and g.get("winner") is not None
+
+        if not decided:
+            return {
+                "status": "PENDING",
+                "opponent": opponent,
+                "score": None,
+                "game_date": g.get("game_date") or ""
+            }
+
+        score = f"{g.get('away_score')} - {g.get('home_score')}"
+        if g.get("winner") == team:
+            status = "SURVIVED"
+        else:
+            # A loss or a tie counts as an elimination in this Survivor pool.
+            status = "ELIMINATED"
+
+        return {
+            "status": status,
+            "opponent": opponent,
+            "score": score,
+            "game_date": g.get("game_date") or ""
+        }
+
+    return {
+        "status": "PENDING",
+        "opponent": "",
+        "score": None,
+        "game_date": ""
+    }
+
+
+def survivor_results_data(week):
+    picks = sb_get(
+        "survivor_picks",
+        {
+            "select": "*",
+            "season": f"eq.{SEASON}",
+            "week": f"eq.{week}",
+            "order": "player_name.asc"
+        }
+    )
+    games = get_week(week)
+
+    results = []
+    for p in picks:
+        outcome = survivor_pick_result((p.get("team") or "").upper(), games)
+        results.append({
+            "id": p.get("id"),
+            "player_name": p.get("player_name"),
+            "team": p.get("team"),
+            "team_name": TEAMS.get(p.get("team"), p.get("team")),
+            "opponent": outcome["opponent"],
+            "opponent_name": TEAMS.get(outcome["opponent"], outcome["opponent"]),
+            "status": outcome["status"],
+            "score": outcome["score"],
+            "game_date": outcome["game_date"],
+            "submitted_at": p.get("submitted_at")
+        })
+    return results
+
+
+def survivor_player_history(player_key):
+    rows = sb_get(
+        "survivor_picks",
+        {
+            "select": "week,team,player_name",
+            "season": f"eq.{SEASON}",
+            "player_key": f"eq.{player_key}",
+            "order": "week.asc"
+        }
+    )
+    return rows
+
 @app.route("/")
 def index():
     week=max(1,min(18,request.args.get("week",1,type=int)))
@@ -204,6 +286,16 @@ def index():
 @app.route("/draft")
 def draft():
     return render_template("draft.html",season=SEASON)
+
+@app.route("/survivor")
+def survivor():
+    week=max(1,min(18,request.args.get("week",1,type=int)))
+    return render_template("survivor.html",season=SEASON,week=week)
+
+@app.route("/survivor/results")
+def survivor_results():
+    week=max(1,min(18,request.args.get("week",1,type=int)))
+    return render_template("survivor_results.html",season=SEASON,week=week)
 
 @app.route("/health")
 def health():
@@ -274,6 +366,101 @@ def api_draft():
 
     sb_upsert("draft_players",rows,"id")
     return jsonify({"ok":True,"players":draft_data()})
+
+
+@app.route("/api/survivor/pick", methods=["POST"])
+def api_survivor_pick():
+    payload = request.get_json(silent=True) or {}
+
+    player_name = str(payload.get("player_name", "")).strip()
+    team = str(payload.get("team", "")).strip().upper()
+    try:
+        week = int(payload.get("week", 0))
+    except Exception:
+        week = 0
+
+    if not player_name:
+        return jsonify({"ok": False, "error": "Enter your player name."}), 400
+    if len(player_name) > 80:
+        return jsonify({"ok": False, "error": "Player name is too long."}), 400
+    if week < 1 or week > 18:
+        return jsonify({"ok": False, "error": "Choose a valid NFL week."}), 400
+    if team not in TEAMS:
+        return jsonify({"ok": False, "error": "Choose a valid NFL team."}), 400
+
+    player_key = " ".join(player_name.lower().split())
+    history = survivor_player_history(player_key)
+
+    # A team may not be reused in a different week.
+    for old in history:
+        if int(old.get("week") or 0) != week and (old.get("team") or "").upper() == team:
+            return jsonify({
+                "ok": False,
+                "error": f"You already used {TEAMS.get(team, team)} in Week {old.get('week')}. Survivor teams cannot be reused."
+            }), 400
+
+    now = dt.datetime.utcnow().isoformat()
+    row = {
+        "season": SEASON,
+        "week": week,
+        "player_name": player_name,
+        "player_key": player_key,
+        "team": team,
+        "submitted_at": now,
+        "updated_at": now
+    }
+
+    sb_upsert("survivor_picks", [row], "season,week,player_key")
+
+    return jsonify({
+        "ok": True,
+        "message": f"Week {week} pick saved: {TEAMS.get(team, team)}",
+        "pick": row
+    })
+
+
+@app.route("/api/survivor/history")
+def api_survivor_history():
+    player_name = str(request.args.get("player", "")).strip()
+    if not player_name:
+        return jsonify({"history": []})
+
+    player_key = " ".join(player_name.lower().split())
+    rows = survivor_player_history(player_key)
+    for row in rows:
+        row["team_name"] = TEAMS.get(row.get("team"), row.get("team"))
+    return jsonify({"history": rows})
+
+
+@app.route("/api/survivor/results/<int:week>")
+def api_survivor_results(week):
+    week=max(1,min(18,week))
+    sync_error=None
+    try:
+        sync_week(week)
+    except Exception as e:
+        sync_error=str(e)
+
+    try:
+        results=survivor_results_data(week)
+    except Exception as e:
+        results=[]
+        sync_error=sync_error or str(e)
+
+    counts = {
+        "total": len(results),
+        "survived": sum(1 for r in results if r["status"] == "SURVIVED"),
+        "eliminated": sum(1 for r in results if r["status"] == "ELIMINATED"),
+        "pending": sum(1 for r in results if r["status"] == "PENDING")
+    }
+
+    return jsonify({
+        "week": week,
+        "results": results,
+        "counts": counts,
+        "sync_error": sync_error
+    })
+
 
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.getenv("PORT","5000")),debug=False)

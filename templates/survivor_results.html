@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Survivor Results {{season}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <b>🏈 NFL DEGENERATES POOL</b>
+  <nav>
+    <a href="/">NFL RESULTS</a>
+    <a href="/draft">DRAFT TEAM POOL</a>
+    <a href="/survivor">SURVIVOR PICKS</a>
+    <a class="active-nav" href="/survivor/results">SURVIVOR RESULTS</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero">
+  <div>
+    <div class="eyebrow">{{season}} SURVIVOR POOL</div>
+    <h1>Weekly Results</h1>
+    <p>Track every player's weekly selection and see who survived, who was eliminated, and which games are still pending.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button-link primary" href="/survivor?week={{week}}">Submit Week {{week}} Pick</a>
+  </div>
+</section>
+
+<div class="weeks">
+  {% for w in range(1,19) %}
+  <a class="{% if w==week %}active{% endif %}" href="/survivor/results?week={{w}}">Week {{w}}</a>
+  {% endfor %}
+</div>
+
+<section class="summary-grid survivor-summary">
+  <div class="summary-card"><span>Total Picks</span><strong id="total">—</strong></div>
+  <div class="summary-card"><span>Survived</span><strong id="survived" class="positive">—</strong></div>
+  <div class="summary-card"><span>Eliminated</span><strong id="eliminated" class="negative">—</strong></div>
+  <div class="summary-card"><span>Pending</span><strong id="pending">—</strong></div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">WEEK {{week}}</div>
+      <h2>Survivor Results</h2>
+      <p id="subhead">Loading weekly picks and NFL results…</p>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table class="survivor-results-table">
+      <thead>
+        <tr>
+          <th>Player</th>
+          <th>Pick</th>
+          <th>Opponent</th>
+          <th>Game Score</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody id="results">
+        <tr><td colspan="5">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p id="notice"></p>
+</main>
+
+<script>
+const week={{week}};
+
+function esc(v){
+  return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+}
+
+function statusBadge(status){
+  const cls=status==="SURVIVED" ? "survived" : status==="ELIMINATED" ? "eliminated" : "pending";
+  const label=status==="SURVIVED" ? "✓ Survived" : status==="ELIMINATED" ? "✕ Eliminated" : "• Pending";
+  return `<span class="survivor-status ${cls}">${label}</span>`;
+}
+
+fetch("/api/survivor/results/"+week)
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.sync_error){
+      document.getElementById("notice").textContent="Live NFL refresh issue; stored results are shown. "+d.sync_error;
+    }
+
+    document.getElementById("total").textContent=d.counts.total;
+    document.getElementById("survived").textContent=d.counts.survived;
+    document.getElementById("eliminated").textContent=d.counts.eliminated;
+    document.getElementById("pending").textContent=d.counts.pending;
+
+    const rows=d.results || [];
+    document.getElementById("subhead").textContent=
+      rows.length ? `${rows.length} pick${rows.length===1?"":"s"} submitted for Week ${week}.` : `No Week ${week} picks have been submitted yet.`;
+
+    if(!rows.length){
+      document.getElementById("results").innerHTML='<tr><td colspan="5"><div class="empty-state">No Survivor picks submitted for this week.</div></td></tr>';
+      return;
+    }
+
+    document.getElementById("results").innerHTML=rows.map(r=>`
+      <tr>
+        <td><strong>${esc(r.player_name)}</strong></td>
+        <td><span class="team-pill">${esc(r.team)}</span> ${esc(r.team_name)}</td>
+        <td>${r.opponent ? `<span class="team-pill">${esc(r.opponent)}</span> ${esc(r.opponent_name)}` : "—"}</td>
+        <td>${esc(r.score || "—")}</td>
+        <td>${statusBadge(r.status)}</td>
+      </tr>
+    `).join("");
+  })
+  .catch(()=>{
+    document.getElementById("results").innerHTML='<tr><td colspan="5">Could not load Survivor results.</td></tr>';
+  });
+</script>
+</body>
+</html>

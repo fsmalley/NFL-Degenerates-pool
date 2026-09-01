@@ -1,5 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NFL Results</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><header><b>🏈 NFL DEGENERATES POOL</b><a href="/draft">DRAFT TEAM POOL →</a></header><main>
+<body><header><b>🏈 NFL DEGENERATES POOL</b><nav>
+<a class="active-nav" href="/">NFL RESULTS</a>
+<a href="/draft">DRAFT TEAM POOL</a>
+<a href="/survivor">SURVIVOR PICKS</a>
+<a href="/survivor/results">SURVIVOR RESULTS</a>
+</nav></header><main>
 <h1>NFL Weekly Results</h1><p>Choose a week. Completed games show the winner and point differential.</p>
 <div class="weeks">{% for w in range(1,19) %}<a class="{% if w==week %}active{% endif %}" href="/?week={{w}}">Week {{w}}</a>{% endfor %}</div>
 <section class="card"><table><thead><tr><th>Game</th><th>Score</th><th>Winner</th><th>Point Differential</th></tr></thead><tbody id="games"><tr><td colspan="4">Loading…</td></tr></tbody></table></section><p id="notice"></p>
