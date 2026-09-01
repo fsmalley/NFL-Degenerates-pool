@@ -8,6 +8,8 @@ app = Flask(__name__)
 SEASON = int(os.getenv("NFL_SEASON", "2026"))
 API_BASE = os.getenv("NFLDATA_API_BASE", "https://api.nfldata.org")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+if SUPABASE_URL.endswith("/rest/v1"):
+    SUPABASE_URL = SUPABASE_URL[:-8].rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
@@ -25,9 +27,10 @@ TEAMS = {
 def sb_headers(extra=None):
     h = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
         "Content-Type": "application/json",
     }
+    if SUPABASE_SERVICE_KEY and not SUPABASE_SERVICE_KEY.startswith("sb_secret_"):
+        h["Authorization"] = f"Bearer {SUPABASE_SERVICE_KEY}"
     if extra:
         h.update(extra)
     return h
@@ -183,6 +186,7 @@ def health():
         sb_get("draft_players", {"select":"id","limit":"1"})
         return jsonify({"status":"ok","database":"supabase","season":SEASON}), 200
     except Exception as e:
+        print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500
 
 @app.route("/api/week/<int:week>")

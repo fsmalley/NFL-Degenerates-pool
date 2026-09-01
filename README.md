@@ -1,4 +1,4 @@
-# NFL Results Dashboard V1.6 - Supabase Persistent Database
+# NFL Results Dashboard V1.6.1 - Supabase Connection Fix
 
 1. Create a free Supabase project.
 2. Open SQL Editor and run `supabase_schema.sql`.
@@ -22,3 +22,10 @@ Health check:
     /health
 
 IMPORTANT: Keep the Supabase service_role key private. It belongs only in Render's environment variables.
+
+
+## V1.6.1 connection fix
+
+- Supports the newer `sb_secret_...` Supabase secret key and the legacy `service_role` key.
+- Automatically removes `/rest/v1` if it was included in `SUPABASE_URL`.
+- Writes the exact Supabase health-check error to Render logs if the connection still fails.
