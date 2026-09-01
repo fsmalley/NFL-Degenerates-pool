@@ -148,27 +148,52 @@ def draft_data():
     ensure_players()
     players = sb_get("draft_players", {"select":"*","order":"id.asc"})
     games = sb_get("games", {"select":"*","season":f"eq.{SEASON}"})
+
     for p in players:
-        total=0
-        count=0
-        for n in range(1,9):
-            team=(p.get(f"team{n}") or "").strip().upper()
-            if not team:
+        total = 0
+        count = 0
+        weekly = {str(w): 0 for w in range(1, 19)}
+        weekly_games = {str(w): 0 for w in range(1, 19)}
+
+        selected = []
+        for n in range(1, 9):
+            team = (p.get(f"team{n}") or "").strip().upper()
+            if team:
+                selected.append(team)
+
+        for g in games:
+            if g.get("margin") is None:
                 continue
-            for g in games:
-                if g.get("margin") is None:
-                    continue
-                if g.get("winner")==team:
-                    total += int(g["margin"]); count += 1
-                elif g.get("loser")==team:
-                    total -= int(g["margin"]); count += 1
-                elif g.get("winner")=="TIE" and team in (g.get("away_team"),g.get("home_team")):
+
+            week = str(g.get("week") or "")
+            if week not in weekly:
+                continue
+
+            for team in selected:
+                score = None
+
+                if g.get("winner") == team:
+                    score = int(g["margin"])
+                elif g.get("loser") == team:
+                    score = -int(g["margin"])
+                elif g.get("winner") == "TIE" and team in (g.get("away_team"), g.get("home_team")):
+                    score = 0
+
+                if score is not None:
+                    total += score
                     count += 1
-        p["total_points"]=total
-        p["games_count"]=count
-    players.sort(key=lambda p:(-p["total_points"],p["player_name"].lower()))
-    for rank,p in enumerate(players,1):
-        p["rank"]=rank
+                    weekly[week] += score
+                    weekly_games[week] += 1
+
+        p["total_points"] = total
+        p["games_count"] = count
+        p["weekly_scores"] = weekly
+        p["weekly_games"] = weekly_games
+
+    players.sort(key=lambda p: (-p["total_points"], p["player_name"].lower()))
+    for rank, p in enumerate(players, 1):
+        p["rank"] = rank
+
     return players
 
 @app.route("/")
@@ -201,6 +226,16 @@ def api_week(week):
         err=err or str(e)
     return jsonify({"week":week,"games":games,"sync_error":err})
 
+
+@app.route("/api/admin/check", methods=["POST"])
+def api_admin_check():
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "ADMIN_PASSWORD is not configured on the server."}), 500
+    if payload.get("password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Incorrect admin password."}), 403
+    return jsonify({"ok": True})
+
 @app.route("/api/draft", methods=["GET","POST"])
 def api_draft():
     if request.method=="GET":
@@ -216,10 +251,27 @@ def api_draft():
         pid=p.get("id")
         if not pid:
             continue
-        row={"id":int(pid),"player_name":str(p.get("player_name","")).strip() or f"Player {pid}","updated_at":now}
+
+        selected = []
+        row={
+            "id":int(pid),
+            "player_name":str(p.get("player_name","")).strip() or f"Player {pid}",
+            "updated_at":now
+        }
+
         for n in range(1,9):
-            row[f"team{n}"]=str(p.get(f"team{n}","")).strip().upper()
+            team=str(p.get(f"team{n}","")).strip().upper()
+            if team and team not in TEAMS:
+                return jsonify({"ok":False,"error":f"Invalid team abbreviation for {row['player_name']}: {team}"}),400
+            if team:
+                selected.append(team)
+            row[f"team{n}"]=team
+
+        if len(selected) != len(set(selected)):
+            return jsonify({"ok":False,"error":f"{row['player_name']} has the same NFL team selected more than once."}),400
+
         rows.append(row)
+
     sb_upsert("draft_players",rows,"id")
     return jsonify({"ok":True,"players":draft_data()})
 

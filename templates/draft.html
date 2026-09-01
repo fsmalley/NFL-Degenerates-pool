@@ -1,11 +1,316 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Draft Team Pool</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><header><b>🏈 DRAFT TEAM POOL</b><a href="/">← NFL RESULTS</a></header><main>
-<h1>Draft Team Pool</h1><p>Leaderboard scores update automatically from completed-game point differential.</p>
-<div class="admin card"><div><b>Commissioner Edit</b><p>Enter the admin password only when changing player names or team selections.</p></div><input id="password" class="password" type="password" placeholder="Admin password"><button id="save">Save Selections</button><span id="message"></span></div>
-<section class="card"><table><thead><tr><th>Rank</th><th>Player</th><th>Team 1</th><th>Team 2</th><th>Team 3</th><th>Team 4</th><th>Team 5</th><th>Team 6</th><th>Team 7</th><th>Team 8</th><th>Games</th><th>Total Differential</th></tr></thead><tbody id="body"><tr><td colspan="12">Loading…</td></tr></tbody></table></section>
-</main><script>
-let players=[];function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;")}
-function render(){body.innerHTML=players.map(p=>{let cells="";for(let n=1;n<=8;n++)cells+=`<td><input data-id="${p.id}" data-field="team${n}" maxlength="3" value="${esc(p["team"+n])}" placeholder="—"></td>`;let total=p.total_points>0?"+"+p.total_points:p.total_points;return `<tr><td><b>${p.rank}</b></td><td><input class="player" data-id="${p.id}" data-field="player_name" value="${esc(p.player_name)}"></td>${cells}<td>${p.games_count}</td><td><b>${total}</b></td></tr>`}).join("")}
-async function load(){let r=await fetch("/api/draft"),d=await r.json();if(!r.ok){message.textContent=d.error||"Could not load.";return}players=d.players;render()}
-save.onclick=async()=>{message.textContent="Saving…";let out=players.map(p=>{let x={id:p.id};document.querySelectorAll(`[data-id="${p.id}"]`).forEach(i=>x[i.dataset.field]=i.value);return x});let r=await fetch("/api/draft",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password.value,players:out})});let d=await r.json();if(!r.ok){message.textContent=d.error||"Save failed.";return}players=d.players;render();password.value="";message.textContent="Saved permanently ✓";setTimeout(()=>message.textContent="",3000)};load();
-</script></body></html>
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Draft Team Pool {{season}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <b>🏈 NFL DEGENERATES POOL</b>
+  <nav>
+    <a href="/">NFL RESULTS</a>
+    <a class="active-nav" href="/draft">DRAFT TEAM POOL</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero">
+  <div>
+    <div class="eyebrow">2026 SEASON</div>
+    <h1>Draft Team Pool</h1>
+    <p>Season standings are calculated from each selected team's point differential in completed games.</p>
+  </div>
+  <div class="hero-actions">
+    <button id="editBtn" class="secondary">Commissioner Edit</button>
+    <button id="saveBtn" class="primary hidden">Save Changes</button>
+    <button id="cancelBtn" class="ghost hidden">Cancel</button>
+  </div>
+</section>
+
+<div id="status" class="status hidden"></div>
+
+<section class="summary-grid">
+  <div class="summary-card">
+    <span>Players</span>
+    <strong id="playerCount">—</strong>
+  </div>
+  <div class="summary-card">
+    <span>Leader</span>
+    <strong id="leaderName">—</strong>
+  </div>
+  <div class="summary-card">
+    <span>Leading Differential</span>
+    <strong id="leaderScore">—</strong>
+  </div>
+  <div class="summary-card">
+    <span>Scoring Weeks</span>
+    <strong id="weeksScored">—</strong>
+  </div>
+</section>
+
+<section class="card leaderboard-card">
+  <div class="section-head">
+    <div>
+      <h2>Season Leaderboard</h2>
+      <p>Tap a player row to view the weekly scoring breakdown.</p>
+    </div>
+  </div>
+
+  <div class="tablewrap">
+    <table class="leaderboard">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Player</th>
+          <th>Team 1</th><th>Team 2</th><th>Team 3</th><th>Team 4</th>
+          <th>Team 5</th><th>Team 6</th><th>Team 7</th><th>Team 8</th>
+          <th>Games</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody id="body">
+        <tr><td colspan="12">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="weeklyPanel" class="card weekly-panel hidden">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">WEEKLY BREAKDOWN</div>
+      <h2 id="weeklyTitle">Player</h2>
+    </div>
+    <button id="closeWeekly" class="ghost">Close</button>
+  </div>
+  <div id="weeklyGrid" class="weekly-grid"></div>
+</section>
+</main>
+
+<script>
+let players = [];
+let teams = {};
+let editing = false;
+let adminPassword = "";
+let originalPlayers = [];
+
+const $ = (id) => document.getElementById(id);
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;");
+}
+
+function scoreClass(n) {
+  n = Number(n || 0);
+  if (n > 0) return "positive";
+  if (n < 0) return "negative";
+  return "neutral";
+}
+
+function scoreText(n) {
+  n = Number(n || 0);
+  return n > 0 ? "+" + n : String(n);
+}
+
+function teamOptions(selected) {
+  const sorted = Object.entries(teams).sort((a,b) => a[1].localeCompare(b[1]));
+  return '<option value="">—</option>' +
+    sorted.map(([abbr,name]) =>
+      `<option value="${abbr}" ${abbr===selected ? "selected" : ""}>${abbr} — ${esc(name)}</option>`
+    ).join("");
+}
+
+function teamCell(player, n) {
+  const value = player["team"+n] || "";
+  if (editing) {
+    return `<select class="team-select" data-id="${player.id}" data-field="team${n}">${teamOptions(value)}</select>`;
+  }
+  return value
+    ? `<span class="team-pill" title="${esc(teams[value] || value)}">${esc(value)}</span>`
+    : `<span class="empty-team">—</span>`;
+}
+
+function renderSummary() {
+  $("playerCount").textContent = players.length;
+  const leader = players[0];
+  $("leaderName").textContent = leader ? leader.player_name : "—";
+  $("leaderScore").textContent = leader ? scoreText(leader.total_points) : "—";
+  $("leaderScore").className = leader ? scoreClass(leader.total_points) : "";
+
+  const weeks = new Set();
+  players.forEach(p => {
+    Object.entries(p.weekly_games || {}).forEach(([week,count]) => {
+      if (Number(count) > 0) weeks.add(week);
+    });
+  });
+  $("weeksScored").textContent = weeks.size;
+}
+
+function render() {
+  $("body").innerHTML = players.map(p => {
+    let teamCells = "";
+    for (let n=1; n<=8; n++) teamCells += `<td>${teamCell(p,n)}</td>`;
+
+    const playerName = editing
+      ? `<input class="player-input" data-id="${p.id}" data-field="player_name" value="${esc(p.player_name)}">`
+      : `<button class="player-link" data-player="${p.id}">${esc(p.player_name)}</button>`;
+
+    return `<tr class="player-row" data-row="${p.id}">
+      <td><span class="rank-badge">${p.rank}</span></td>
+      <td>${playerName}</td>
+      ${teamCells}
+      <td>${p.games_count}</td>
+      <td><span class="score ${scoreClass(p.total_points)}">${scoreText(p.total_points)}</span></td>
+    </tr>`;
+  }).join("");
+
+  if (!editing) {
+    document.querySelectorAll(".player-link").forEach(btn => {
+      btn.onclick = () => showWeekly(Number(btn.dataset.player));
+    });
+  }
+
+  renderSummary();
+}
+
+function showWeekly(playerId) {
+  const p = players.find(x => x.id === playerId);
+  if (!p) return;
+
+  $("weeklyTitle").textContent = p.player_name;
+  $("weeklyGrid").innerHTML = Array.from({length:18},(_,i) => {
+    const week = String(i+1);
+    const score = Number((p.weekly_scores || {})[week] || 0);
+    const games = Number((p.weekly_games || {})[week] || 0);
+    return `<div class="week-card ${games ? "played" : ""}">
+      <span>Week ${week}</span>
+      <strong class="${games ? scoreClass(score) : "muted"}">${games ? scoreText(score) : "—"}</strong>
+      <small>${games ? games + " team game" + (games===1?"":"s") : "No completed games"}</small>
+    </div>`;
+  }).join("");
+
+  $("weeklyPanel").classList.remove("hidden");
+  $("weeklyPanel").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+async function load() {
+  const r = await fetch("/api/draft");
+  const d = await r.json();
+  if (!r.ok) {
+    showStatus(d.error || "Could not load Draft Team Pool.", "error");
+    return;
+  }
+  players = d.players;
+  teams = d.teams;
+  originalPlayers = JSON.parse(JSON.stringify(players));
+  render();
+}
+
+function showStatus(message, type="ok") {
+  const el = $("status");
+  el.textContent = message;
+  el.className = "status " + type;
+  el.classList.remove("hidden");
+}
+
+function hideStatus() {
+  $("status").classList.add("hidden");
+}
+
+$("editBtn").onclick = async () => {
+  const password = prompt("Commissioner password:");
+  if (!password) return;
+
+  const r = await fetch("/api/admin/check", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password})
+  });
+  const d = await r.json();
+
+  if (!r.ok) {
+    showStatus(d.error || "Password not accepted.", "error");
+    return;
+  }
+
+  adminPassword = password;
+  editing = true;
+  originalPlayers = JSON.parse(JSON.stringify(players));
+  $("editBtn").classList.add("hidden");
+  $("saveBtn").classList.remove("hidden");
+  $("cancelBtn").classList.remove("hidden");
+  $("weeklyPanel").classList.add("hidden");
+  showStatus("Commissioner edit mode is active.", "ok");
+  render();
+};
+
+$("cancelBtn").onclick = () => {
+  players = JSON.parse(JSON.stringify(originalPlayers));
+  editing = false;
+  adminPassword = "";
+  $("editBtn").classList.remove("hidden");
+  $("saveBtn").classList.add("hidden");
+  $("cancelBtn").classList.add("hidden");
+  hideStatus();
+  render();
+};
+
+$("saveBtn").onclick = async () => {
+  const payload = players.map(p => {
+    const item = {id:p.id};
+    document.querySelectorAll(`[data-id="${p.id}"]`).forEach(input => {
+      item[input.dataset.field] = input.value;
+    });
+    return item;
+  });
+
+  // Client-side duplicate check for quicker feedback.
+  for (const p of payload) {
+    const selected = [];
+    for (let n=1; n<=8; n++) {
+      const t = (p["team"+n] || "").trim();
+      if (t) selected.push(t);
+    }
+    if (new Set(selected).size !== selected.length) {
+      showStatus(`${p.player_name || "A player"} has the same NFL team selected more than once.`, "error");
+      return;
+    }
+  }
+
+  showStatus("Saving changes…", "ok");
+
+  const r = await fetch("/api/draft", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password:adminPassword, players:payload})
+  });
+  const d = await r.json();
+
+  if (!r.ok) {
+    showStatus(d.error || "Save failed.", "error");
+    return;
+  }
+
+  players = d.players;
+  originalPlayers = JSON.parse(JSON.stringify(players));
+  editing = false;
+  adminPassword = "";
+  $("editBtn").classList.remove("hidden");
+  $("saveBtn").classList.add("hidden");
+  $("cancelBtn").classList.add("hidden");
+  showStatus("Changes saved permanently ✓", "ok");
+  render();
+};
+
+$("closeWeekly").onclick = () => $("weeklyPanel").classList.add("hidden");
+
+load();
+</script>
+</body>
+</html>

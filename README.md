@@ -1,4 +1,4 @@
-# NFL Results Dashboard V1.6.1 - Supabase Connection Fix
+# NFL Results Dashboard V1.7 - Supabase Connection Fix
 
 1. Create a free Supabase project.
 2. Open SQL Editor and run `supabase_schema.sql`.
@@ -24,8 +24,21 @@ Health check:
 IMPORTANT: Keep the Supabase service_role key private. It belongs only in Render's environment variables.
 
 
-## V1.6.1 connection fix
+## V1.7 connection fix
 
 - Supports the newer `sb_secret_...` Supabase secret key and the legacy `service_role` key.
 - Automatically removes `/rest/v1` if it was included in `SUPABASE_URL`.
 - Writes the exact Supabase health-check error to Render logs if the connection still fails.
+
+
+## V1.7 Draft Team Pool improvements
+
+- Public leaderboard is read-only by default.
+- Commissioner Edit mode verifies the admin password before enabling edits.
+- NFL team selections use full-name dropdowns instead of typed abbreviations.
+- Duplicate team selections for the same player are blocked.
+- Positive scores are highlighted green; negative scores are highlighted red.
+- Click a player name to view Week 1-18 scoring breakdown.
+- Summary cards show player count, current leader, leading differential, and scoring weeks.
+- Improved responsive/mobile layout.
+- Existing Render + Supabase environment variables are unchanged.
