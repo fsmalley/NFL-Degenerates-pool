@@ -1,108 +1,11 @@
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Draft Team Pool {{season}}</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<header>
-  <b>🏈 DRAFT TEAM POOL</b>
-  <a href="/">← NFL RESULTS</a>
-</header>
-
-<main>
-<h1>Draft Team Pool</h1>
-<p>Enter each player's name and 8 NFL team selections. Scores update automatically from completed-game point differential.</p>
-
-<div class="bar">
-  <button id="save">Save Selections</button>
-  <span id="message"></span>
-</div>
-
-<section class="card tablewrap">
-<table>
-<thead>
-<tr>
-  <th>Rank</th>
-  <th>Player</th>
-  <th>Team 1</th><th>Team 2</th><th>Team 3</th><th>Team 4</th>
-  <th>Team 5</th><th>Team 6</th><th>Team 7</th><th>Team 8</th>
-  <th>Games</th>
-  <th>Total Differential</th>
-</tr>
-</thead>
-<tbody id="body">
-<tr><td colspan="12">Loading…</td></tr>
-</tbody>
-</table>
-</section>
-</main>
-
-<script>
-let players = [];
-
-function esc(value) {
-    return String(value ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;");
-}
-
-function render() {
-    body.innerHTML = players.map(p => {
-        let teamCells = "";
-        for (let n=1; n<=8; n++) {
-            teamCells += `<td>
-                <input data-id="${p.id}" data-field="team${n}"
-                       maxlength="3" value="${esc(p["team"+n])}" placeholder="—">
-            </td>`;
-        }
-
-        let total = p.total_points > 0 ? "+" + p.total_points : p.total_points;
-
-        return `<tr>
-            <td><b>${p.rank}</b></td>
-            <td><input class="player" data-id="${p.id}" data-field="player_name"
-                       value="${esc(p.player_name)}"></td>
-            ${teamCells}
-            <td>${p.games_count}</td>
-            <td class="total"><b>${total}</b></td>
-        </tr>`;
-    }).join("");
-}
-
-async function load() {
-    const data = await fetch("/api/draft").then(r => r.json());
-    players = data.players;
-    render();
-}
-
-save.onclick = async () => {
-    const payload = players.map(p => {
-        const item = {id:p.id};
-        document.querySelectorAll(`[data-id="${p.id}"]`).forEach(input => {
-            item[input.dataset.field] = input.value;
-        });
-        return item;
-    });
-
-    const data = await fetch("/api/draft", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({players:payload})
-    }).then(r => r.json());
-
-    players = data.players;
-    render();
-
-    message.textContent = "Saved ✓";
-    setTimeout(() => message.textContent = "", 2000);
-};
-
-load();
-</script>
-</body>
-</html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Draft Team Pool</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><header><b>🏈 DRAFT TEAM POOL</b><a href="/">← NFL RESULTS</a></header><main>
+<h1>Draft Team Pool</h1><p>Leaderboard scores update automatically from completed-game point differential.</p>
+<div class="admin card"><div><b>Commissioner Edit</b><p>Enter the admin password only when changing player names or team selections.</p></div><input id="password" class="password" type="password" placeholder="Admin password"><button id="save">Save Selections</button><span id="message"></span></div>
+<section class="card"><table><thead><tr><th>Rank</th><th>Player</th><th>Team 1</th><th>Team 2</th><th>Team 3</th><th>Team 4</th><th>Team 5</th><th>Team 6</th><th>Team 7</th><th>Team 8</th><th>Games</th><th>Total Differential</th></tr></thead><tbody id="body"><tr><td colspan="12">Loading…</td></tr></tbody></table></section>
+</main><script>
+let players=[];function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;")}
+function render(){body.innerHTML=players.map(p=>{let cells="";for(let n=1;n<=8;n++)cells+=`<td><input data-id="${p.id}" data-field="team${n}" maxlength="3" value="${esc(p["team"+n])}" placeholder="—"></td>`;let total=p.total_points>0?"+"+p.total_points:p.total_points;return `<tr><td><b>${p.rank}</b></td><td><input class="player" data-id="${p.id}" data-field="player_name" value="${esc(p.player_name)}"></td>${cells}<td>${p.games_count}</td><td><b>${total}</b></td></tr>`}).join("")}
+async function load(){let r=await fetch("/api/draft"),d=await r.json();if(!r.ok){message.textContent=d.error||"Could not load.";return}players=d.players;render()}
+save.onclick=async()=>{message.textContent="Saving…";let out=players.map(p=>{let x={id:p.id};document.querySelectorAll(`[data-id="${p.id}"]`).forEach(i=>x[i.dataset.field]=i.value);return x});let r=await fetch("/api/draft",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password.value,players:out})});let d=await r.json();if(!r.ok){message.textContent=d.error||"Save failed.";return}players=d.players;render();password.value="";message.textContent="Saved permanently ✓";setTimeout(()=>message.textContent="",3000)};load();
+</script></body></html>
