@@ -13,7 +13,7 @@
     <a href="/">NFL RESULTS</a>
     <a href="/draft">DRAFT TEAM POOL</a>
     <a href="/survivor">SURVIVOR PICKS</a>
-    <a href="/survivor/results">SURVIVOR RESULTS</a>
+    <a href="/survivor/results">WEEKLY RESULTS</a>
     <a class="active-nav" href="/survivor/board">SEASON BOARD</a>
   </nav>
 </header>
@@ -23,17 +23,17 @@
   <div>
     <div class="eyebrow">{{season}} SURVIVOR POOL</div>
     <h1>Season Survivor Board</h1>
-    <p>Every player, every weekly pick, and current survival status in one view.</p>
+    <p>Every player, every week, and every result in one view. Green picks survived; red picks ended that entry; pending games remain open.</p>
   </div>
   <div class="hero-actions">
-    <a class="button-link primary" href="/survivor">Make a Pick</a>
+    <a class="button-link primary" href="/survivor">Submit a Pick</a>
   </div>
 </section>
 
 <section class="summary-grid">
-  <div class="summary-card"><span>Total Players</span><strong id="total">—</strong></div>
+  <div class="summary-card"><span>Total Players</span><strong id="totalPlayers">—</strong></div>
   <div class="summary-card"><span>Still Alive</span><strong id="alive" class="positive">—</strong></div>
-  <div class="summary-card"><span>Eliminated</span><strong id="eliminated" class="negative">—</strong></div>
+  <div class="summary-card"><span>Eliminated</span><strong id="out" class="negative">—</strong></div>
   <div class="summary-card"><span>Season</span><strong>{{season}}</strong></div>
 </section>
 
@@ -41,21 +41,21 @@
   <div class="section-head">
     <div>
       <div class="eyebrow dark-eyebrow">FULL SEASON</div>
-      <h2>Survivor Grid</h2>
-      <p>✓ survived · ✕ eliminated · • pending · — no pick</p>
+      <h2>Survivor Matrix</h2>
+      <p>Scroll horizontally to view all 18 weeks.</p>
     </div>
   </div>
-  <div class="tablewrap">
-    <table class="season-board">
+  <div class="tablewrap survivor-board-wrap">
+    <table class="survivor-board-table">
       <thead>
         <tr>
           <th>Player</th>
-          <th>Status</th>
           {% for w in range(1,19) %}<th>W{{w}}</th>{% endfor %}
+          <th>Status</th>
         </tr>
       </thead>
-      <tbody id="board">
-        <tr><td colspan="20">Loading…</td></tr>
+      <tbody id="boardBody">
+        <tr><td colspan="20">Loading season board…</td></tr>
       </tbody>
     </table>
   </div>
@@ -63,36 +63,45 @@
 </main>
 
 <script>
-function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");}
-function pickCell(p){
-  if(!p || !p.team) return '<span class="board-pick no-pick">—</span>';
-  const cls=p.status==="SURVIVED" ? "won" : p.status==="ELIMINATED" ? "lost" : "waiting";
-  const icon=p.status==="SURVIVED" ? "✓" : p.status==="ELIMINATED" ? "✕" : "•";
-  return `<span class="board-pick ${cls}" title="${esc(p.status)}">${esc(p.team)} ${icon}</span>`;
+function esc(v){
+  return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
 }
+function pickCell(p){
+  if(!p) return '<span class="board-empty">—</span>';
+  const cls=p.result==="SURVIVED" ? "board-win" : p.result==="ELIMINATED" ? "board-loss" : "board-pending";
+  const icon=p.result==="SURVIVED" ? "✓" : p.result==="ELIMINATED" ? "✕" : "•";
+  return `<span class="board-pick ${cls}" title="${esc(p.team_name)}">${esc(p.team)} ${icon}</span>`;
+}
+
 fetch("/api/survivor/board")
-.then(r=>r.json())
-.then(d=>{
-  document.getElementById("total").textContent=d.counts.total;
-  document.getElementById("alive").textContent=d.counts.alive;
-  document.getElementById("eliminated").textContent=d.counts.eliminated;
-  const rows=d.players||[];
-  if(!rows.length){
-    document.getElementById("board").innerHTML='<tr><td colspan="20"><div class="empty-state">No Survivor players yet.</div></td></tr>';
-    return;
-  }
-  document.getElementById("board").innerHTML=rows.map(p=>{
-    const status=p.status==="ALIVE"
-      ? '<span class="survivor-status survived">● Alive</span>'
-      : `<span class="survivor-status eliminated">✕ Out W${p.eliminated_week||""}</span>`;
-    let weeks="";
-    for(let w=1;w<=18;w++) weeks+=`<td>${pickCell((p.weekly||{})[String(w)])}</td>`;
-    return `<tr><td><strong>${esc(p.player_name)}</strong></td><td>${status}</td>${weeks}</tr>`;
-  }).join("");
-})
-.catch(()=>{
-  document.getElementById("board").innerHTML='<tr><td colspan="20">Could not load the Survivor season board.</td></tr>';
-});
+  .then(r=>r.json())
+  .then(d=>{
+    const rows=d.players || [];
+    document.getElementById("totalPlayers").textContent=rows.length;
+    document.getElementById("alive").textContent=d.alive || 0;
+    document.getElementById("out").textContent=d.out || 0;
+
+    if(!rows.length){
+      document.getElementById("boardBody").innerHTML='<tr><td colspan="20"><div class="empty-state">No Survivor picks have been submitted yet.</div></td></tr>';
+      return;
+    }
+
+    document.getElementById("boardBody").innerHTML=rows.map(p=>{
+      let weeks="";
+      for(let w=1;w<=18;w++) weeks+=`<td>${pickCell((p.weeks||{})[String(w)])}</td>`;
+      const status=p.status==="ALIVE"
+        ? '<span class="survivor-status survived">● Alive</span>'
+        : `<span class="survivor-status eliminated">✕ Out${p.eliminated_week ? " W"+p.eliminated_week : ""}</span>`;
+      return `<tr>
+        <td class="sticky-player"><strong>${esc(p.player_name)}</strong></td>
+        ${weeks}
+        <td>${status}</td>
+      </tr>`;
+    }).join("");
+  })
+  .catch(()=>{
+    document.getElementById("boardBody").innerHTML='<tr><td colspan="20">Could not load the season Survivor board.</td></tr>';
+  });
 </script>
 </body>
 </html>

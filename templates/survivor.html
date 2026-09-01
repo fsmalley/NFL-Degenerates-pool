@@ -13,7 +13,7 @@
     <a href="/">NFL RESULTS</a>
     <a href="/draft">DRAFT TEAM POOL</a>
     <a class="active-nav" href="/survivor">SURVIVOR PICKS</a>
-    <a href="/survivor/results">SURVIVOR RESULTS</a>
+    <a href="/survivor/results">WEEKLY RESULTS</a>
     <a href="/survivor/board">SEASON BOARD</a>
   </nav>
 </header>
@@ -23,10 +23,10 @@
   <div>
     <div class="eyebrow">{{season}} SURVIVOR POOL</div>
     <h1>Make Your Pick</h1>
-    <p>Choose one NFL team each week. If your team wins, you survive. A loss or tie eliminates the entry. You cannot reuse a team later in the season.</p>
+    <p>Pick one team each week. Win and advance. A loss or tie eliminates the entry. Teams cannot be reused, and picks automatically lock at kickoff.</p>
   </div>
   <div class="hero-actions">
-    <a class="button-link primary" href="/survivor/results?week={{week}}">View Week {{week}} Results</a>
+    <a class="button-link primary" href="/survivor/board">View Season Board</a>
   </div>
 </section>
 
@@ -36,9 +36,9 @@
   <section class="card pick-card">
     <div class="section-head">
       <div>
-        <div class="eyebrow dark-eyebrow">SUBMIT PICK</div>
+        <div class="eyebrow dark-eyebrow">PLAYER ENTRY</div>
         <h2>Weekly Survivor Selection</h2>
-        <p>Your PIN protects your picks. You can change a pick until the originally selected team kicks off.</p>
+        <p>Your first submission establishes your Survivor PIN. Future changes require the same PIN.</p>
       </div>
     </div>
 
@@ -50,7 +50,7 @@
 
       <label>
         <span>Survivor PIN</span>
-        <input id="pin" type="password" minlength="4" autocomplete="current-password" placeholder="4+ characters" required>
+        <input id="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" placeholder="4–12 digits" required>
       </label>
 
       <label>
@@ -65,62 +65,41 @@
       <label class="team-field">
         <span>Team Pick</span>
         <select id="team" required>
-          <option value="">Choose a team…</option>
+          <option value="">Loading teams…</option>
         </select>
+        <small id="teamHelp" class="field-help">Used teams and teams whose games have started will be unavailable.</small>
       </label>
 
-      <div class="commissioner-override">
-        <label class="override-check"><input id="override" type="checkbox"> Commissioner override</label>
-        <input id="adminPassword" type="password" placeholder="Commissioner password" class="hidden">
-      </div>
       <button class="primary survivor-submit" type="submit">Lock In Pick</button>
+      <button class="secondary survivor-submit" type="button" id="commissionerBtn">Commissioner Override</button>
     </form>
   </section>
 
   <section class="card history-card">
     <div class="section-head">
       <div>
-        <div class="eyebrow dark-eyebrow">YOUR HISTORY</div>
+        <div class="eyebrow dark-eyebrow">PLAYER HISTORY</div>
         <h2>Teams Already Used</h2>
-        <p>Enter your player name to see previous selections.</p>
+        <p>Your past selections and lock status.</p>
       </div>
     </div>
     <div id="history" class="history-list">
-      <div class="empty-state">No player selected yet.</div>
+      <div class="empty-state">Enter a player name to see previous selections.</div>
     </div>
   </section>
 </div>
 
 <section class="survivor-rules">
-  <div class="rule-card"><strong>1</strong><span>Pick one team each week</span></div>
-  <div class="rule-card"><strong>2</strong><span>Win and you survive</span></div>
-  <div class="rule-card"><strong>3</strong><span>Loss or tie eliminates you</span></div>
-  <div class="rule-card"><strong>4</strong><span>Never reuse a team</span></div>
-  <div class="rule-card"><strong>5</strong><span>Pick locks at kickoff</span></div>
+  <div class="rule-card"><strong>1</strong><span>One team per week</span></div>
+  <div class="rule-card"><strong>2</strong><span>No team can be reused</span></div>
+  <div class="rule-card"><strong>3</strong><span>Pick locks at kickoff</span></div>
+  <div class="rule-card"><strong>4</strong><span>Loss or tie = eliminated</span></div>
 </section>
 </main>
 
 <script>
-const TEAM_MAP = {
-  "ARI":"Arizona Cardinals","ATL":"Atlanta Falcons","BAL":"Baltimore Ravens","BUF":"Buffalo Bills",
-  "CAR":"Carolina Panthers","CHI":"Chicago Bears","CIN":"Cincinnati Bengals","CLE":"Cleveland Browns",
-  "DAL":"Dallas Cowboys","DEN":"Denver Broncos","DET":"Detroit Lions","GB":"Green Bay Packers",
-  "HOU":"Houston Texans","IND":"Indianapolis Colts","JAX":"Jacksonville Jaguars","KC":"Kansas City Chiefs",
-  "LV":"Las Vegas Raiders","LAC":"Los Angeles Chargers","LAR":"Los Angeles Rams","MIA":"Miami Dolphins",
-  "MIN":"Minnesota Vikings","NE":"New England Patriots","NO":"New Orleans Saints","NYG":"New York Giants",
-  "NYJ":"New York Jets","PHI":"Philadelphia Eagles","PIT":"Pittsburgh Steelers","SF":"San Francisco 49ers",
-  "SEA":"Seattle Seahawks","TB":"Tampa Bay Buccaneers","TEN":"Tennessee Titans","WAS":"Washington Commanders"
-};
-
-const teamSelect = document.getElementById("team");
-Object.entries(TEAM_MAP)
-  .sort((a,b)=>a[1].localeCompare(b[1]))
-  .forEach(([abbr,name])=>{
-    const opt=document.createElement("option");
-    opt.value=abbr;
-    opt.textContent=`${abbr} — ${name}`;
-    teamSelect.appendChild(opt);
-  });
+let usedTeams = new Set();
+let weekTeams = [];
 
 function showStatus(message,type="ok"){
   const el=document.getElementById("status");
@@ -129,12 +108,57 @@ function showStatus(message,type="ok"){
   el.classList.remove("hidden");
 }
 
+function kickoffText(value){
+  if(!value) return "";
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString([], {weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+
+async function loadWeekTeams(){
+  const week=Number(document.getElementById("week").value);
+  const select=document.getElementById("team");
+  select.innerHTML='<option value="">Loading teams…</option>';
+
+  try{
+    const r=await fetch(`/api/survivor/week/${week}`);
+    const d=await r.json();
+    weekTeams=d.teams || [];
+    renderTeamOptions();
+  }catch(e){
+    select.innerHTML='<option value="">Could not load teams</option>';
+  }
+}
+
+function renderTeamOptions(){
+  const select=document.getElementById("team");
+  select.innerHTML='<option value="">Choose a team…</option>';
+
+  weekTeams.forEach(t=>{
+    const used=usedTeams.has(t.team);
+    const unavailable=used || t.locked;
+    const opt=document.createElement("option");
+    opt.value=t.team;
+    opt.disabled=unavailable;
+
+    let suffix=` vs ${t.opponent}`;
+    if(t.kickoff) suffix+=` — ${kickoffText(t.kickoff)}`;
+    if(used) suffix+=" — USED";
+    else if(t.locked) suffix+=" — LOCKED";
+
+    opt.textContent=`${t.team} — ${t.team_name}${suffix}`;
+    select.appendChild(opt);
+  });
+}
+
 async function loadHistory(){
   const name=document.getElementById("playerName").value.trim();
   const box=document.getElementById("history");
 
   if(!name){
-    box.innerHTML='<div class="empty-state">No player selected yet.</div>';
+    usedTeams=new Set();
+    box.innerHTML='<div class="empty-state">Enter a player name to see previous selections.</div>';
+    renderTeamOptions();
     return;
   }
 
@@ -142,51 +166,43 @@ async function loadHistory(){
     const r=await fetch("/api/survivor/history?player="+encodeURIComponent(name));
     const d=await r.json();
     const history=d.history || [];
+    usedTeams=new Set(d.used_teams || []);
+    renderTeamOptions();
 
     if(!history.length){
-      box.innerHTML='<div class="empty-state">No previous Survivor picks found for this name.</div>';
+      box.innerHTML='<div class="empty-state">No previous Survivor picks found. Your first pick will establish your PIN.</div>';
       return;
     }
 
     box.innerHTML=history.map(p=>`
       <div class="history-row">
         <span class="week-chip">W${p.week}</span>
-        <div><strong>${p.team}</strong><small>${p.team_name || p.team}</small></div>
+        <div class="history-main">
+          <strong>${p.team} — ${p.team_name || p.team}</strong>
+          <small>${p.locked ? "🔒 Locked" : "Open"}${p.kickoff ? " · "+kickoffText(p.kickoff) : ""}</small>
+        </div>
       </div>
     `).join("");
-
-    const selectedWeek=Number(document.getElementById("week").value);
-    const used=new Set(history.filter(p=>Number(p.week)!==selectedWeek).map(p=>p.team));
-    Array.from(teamSelect.options).forEach(opt=>{
-      if(!opt.value) return;
-      opt.disabled=used.has(opt.value);
-      opt.textContent=(used.has(opt.value) ? "USED — " : "") + opt.value + " — " + TEAM_MAP[opt.value];
-    });
   }catch(e){
     box.innerHTML='<div class="empty-state">Could not load pick history.</div>';
   }
 }
 
-document.getElementById("override").addEventListener("change",e=>{
-  document.getElementById("adminPassword").classList.toggle("hidden",!e.target.checked);
-});
-document.getElementById("week").addEventListener("change",loadHistory);
-
 let historyTimer;
 document.getElementById("playerName").addEventListener("input",()=>{
   clearTimeout(historyTimer);
-  historyTimer=setTimeout(loadHistory,400);
+  historyTimer=setTimeout(loadHistory,350);
 });
+document.getElementById("week").addEventListener("change",loadWeekTeams);
 
 document.getElementById("pickForm").addEventListener("submit",async(e)=>{
   e.preventDefault();
 
   const payload={
     player_name:document.getElementById("playerName").value.trim(),
-    pin:document.getElementById("pin").value,
+    pin:document.getElementById("pin").value.trim(),
     week:Number(document.getElementById("week").value),
-    team:document.getElementById("team").value,
-    admin_password:document.getElementById("override").checked ? document.getElementById("adminPassword").value : ""
+    team:document.getElementById("team").value
   };
 
   const btn=e.currentTarget.querySelector('button[type="submit"]');
@@ -201,9 +217,8 @@ document.getElementById("pickForm").addEventListener("submit",async(e)=>{
     });
     const d=await r.json();
 
-    if(!r.ok){
-      showStatus(d.error || "Pick could not be saved.","error");
-    }else{
+    if(!r.ok) showStatus(d.error || "Pick could not be saved.","error");
+    else{
       showStatus("✓ "+d.message,"ok");
       await loadHistory();
     }
@@ -214,6 +229,35 @@ document.getElementById("pickForm").addEventListener("submit",async(e)=>{
     btn.textContent="Lock In Pick";
   }
 });
+
+document.getElementById("commissionerBtn").addEventListener("click",async()=>{
+  const player_name=document.getElementById("playerName").value.trim();
+  const week=Number(document.getElementById("week").value);
+  const team=document.getElementById("team").value;
+
+  if(!player_name || !team){
+    showStatus("Enter the player name, week, and team first.","error");
+    return;
+  }
+
+  const password=prompt("Commissioner password:");
+  if(!password) return;
+
+  const r=await fetch("/api/survivor/admin/pick",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password,player_name,week,team})
+  });
+  const d=await r.json();
+
+  if(!r.ok) showStatus(d.error || "Commissioner override failed.","error");
+  else{
+    showStatus("✓ "+d.message,"ok");
+    await loadHistory();
+  }
+});
+
+loadWeekTeams();
 </script>
 </body>
 </html>

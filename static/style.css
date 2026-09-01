@@ -101,3 +101,24 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 .board-pick.lost{background:var(--red-bg);color:var(--red)}
 .board-pick.waiting{background:#edf1f5;color:#596375}
 .board-pick.no-pick{color:#9da6b2;background:#f5f7f9}
+
+
+/* Survivor V2.0 */
+.field-help{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:3px}
+.history-main{min-width:0}
+.survivor-board-table{min-width:1850px}
+.survivor-board-table th,.survivor-board-table td{text-align:center}
+.survivor-board-table th:first-child,.survivor-board-table td:first-child{text-align:left}
+.survivor-board-wrap{position:relative}
+.sticky-player{position:sticky;left:0;background:#fff!important;z-index:2;box-shadow:4px 0 8px rgba(11,18,32,.04)}
+.survivor-board-table th:first-child{position:sticky;left:0;z-index:4;background:#f5f7fa}
+.board-pick{display:inline-flex;min-width:48px;justify-content:center;align-items:center;padding:7px 8px;border-radius:8px;font-size:11px;font-weight:900}
+.board-win{background:var(--green-bg);color:var(--green)}
+.board-loss{background:var(--red-bg);color:var(--red)}
+.board-pending{background:#edf1f5;color:#5f6877}
+.board-empty{color:#b0b7c2}
+.survivor-form button.secondary{justify-self:start}
+@media(max-width:650px){
+  .survivor-form button.secondary{width:100%}
+  .survivor-submit{width:100%}
+}

@@ -2,6 +2,7 @@ import os
 import hashlib
 import hmac
 import secrets
+import re
 import datetime as dt
 import requests
 from flask import Flask, render_template, jsonify, request
@@ -396,6 +397,8 @@ def parse_game_datetime(value):
         return None
     try:
         raw = str(value).strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+            return None
         if raw.endswith("Z"):
             raw = raw[:-1] + "+00:00"
         parsed = dt.datetime.fromisoformat(raw)
@@ -503,6 +506,19 @@ def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
             }], "player_key")
 
     history = survivor_player_history(player_key)
+
+    if not admin_override:
+        for old in history:
+            old_week = int(old.get("week") or 0)
+            if old_week <= 0 or old_week >= week:
+                continue
+            old_team = (old.get("team") or "").upper()
+            outcome = survivor_pick_result(old_team, get_week(old_week))
+            if outcome["status"] == "ELIMINATED":
+                raise PermissionError(
+                    f"This Survivor entry was eliminated in Week {old_week} and cannot submit a later pick."
+                )
+
     existing = next((r for r in history if int(r.get("week") or 0) == week), None)
 
     # Once an existing pick's selected game has started, the player cannot change it.
@@ -809,7 +825,9 @@ def api_survivor_history():
 @app.route("/api/survivor/board")
 def api_survivor_board():
     try:
-        for week in range(1, 19):
+        picks = survivor_all_picks()
+        pick_weeks = sorted({int(p.get("week") or 0) for p in picks if int(p.get("week") or 0) in range(1,19)})
+        for week in pick_weeks:
             try:
                 sync_week(week)
             except Exception:
@@ -901,33 +919,6 @@ def api_survivor_results(week):
         "sync_error": sync_error
     })
 
-
-
-@app.route("/api/survivor/board")
-def api_survivor_board():
-    # Refresh all weeks that have picks, but do not fail the board if an API refresh has an issue.
-    try:
-        pick_rows = sb_get("survivor_picks", {"select": "week", "season": f"eq.{SEASON}"})
-        for week in sorted({int(r.get("week") or 0) for r in pick_rows if r.get("week")}):
-            try:
-                sync_week(week)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    try:
-        board = survivor_board_data()
-        return jsonify({
-            "players": board,
-            "counts": {
-                "total": len(board),
-                "alive": sum(1 for p in board if p["status"] == "ALIVE"),
-                "eliminated": sum(1 for p in board if p["status"] == "ELIMINATED")
-            }
-        })
-    except Exception as e:
-        return jsonify({"players": [], "counts": {"total":0,"alive":0,"eliminated":0}, "error": str(e)}), 500
 
 
 if __name__=="__main__":
