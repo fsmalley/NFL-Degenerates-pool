@@ -7,15 +7,46 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <b>🏈 NFL DEGENERATES POOL</b>
-  <nav>
-    <a href="/">NFL RESULTS</a>
-    <a href="/draft">DRAFT TEAM POOL</a>
-    <a class="active-nav" href="/survivor">SURVIVOR PICKS</a>
-    <a href="/survivor/results">WEEKLY RESULTS</a>
-    <a href="/survivor/board">SEASON BOARD</a>
-    <a href="/test-lab">TEST LAB</a>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button nav-coming-soon" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <span class="nav-placeholder">Coming soon</span>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
   </nav>
 </header>
 
@@ -23,7 +54,7 @@
 <section class="hero survivor-hero">
   <div>
     <div class="eyebrow">{{season}} SURVIVOR POOL</div>
-    <h1>Make Your Pick</h1>
+    <h1>Survivor Pool — Make Your Pick</h1>
     <p>Pick one team each week. Win and advance. A loss or tie eliminates the entry. Teams cannot be reused, and picks automatically lock at kickoff.</p>
   </div>
   <div class="hero-actions">
@@ -38,7 +69,7 @@
     <div class="section-head">
       <div>
         <div class="eyebrow dark-eyebrow">PLAYER ENTRY</div>
-        <h2>Weekly Survivor Selection</h2>
+        <h2>Survivor Pool — Weekly Selection</h2>
         <p>Your first submission establishes your Survivor PIN. Future changes require the same PIN.</p>
       </div>
     </div>
@@ -80,7 +111,7 @@
     <div class="section-head">
       <div>
         <div class="eyebrow dark-eyebrow">PLAYER HISTORY</div>
-        <h2>Teams Already Used</h2>
+        <h2>Survivor Pool — Teams Already Used</h2>
         <p>Your past selections and lock status.</p>
       </div>
     </div>

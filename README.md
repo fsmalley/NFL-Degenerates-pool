@@ -141,3 +141,23 @@ The Draft Test Lab now displays:
 - leaderboard re-sorting whenever the selected "as of" week changes.
 
 This makes it possible to verify that standings move correctly from week to week instead of ranking only by the current week's result.
+
+
+## V2.3 Organized Pool Navigation
+
+The top navigation is now grouped by pool so visitors can immediately see which pages belong together.
+
+- **Draft Pool**
+  - Season Standings
+  - Leaderboard
+  - Player / Team Breakdown
+- **Survivor Pool**
+  - Make a Pick
+  - Weekly Results
+  - Season Board
+- **Confidence Pool**
+  - Placeholder group marked Coming Soon
+- **Commissioner**
+  - Test Lab
+
+Page headings now repeat the pool name, such as `Draft Pool — Season Standings` and `Survivor Pool — Weekly Results`. This release changes navigation and labels only; scoring and database behavior are unchanged.

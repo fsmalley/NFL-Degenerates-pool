@@ -7,15 +7,46 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <b>🏈 NFL DEGENERATES POOL</b>
-  <nav>
-    <a href="/">NFL RESULTS</a>
-    <a class="active-nav" href="/draft">DRAFT TEAM POOL</a>
-    <a href="/survivor">SURVIVOR PICKS</a>
-    <a href="/survivor/results">WEEKLY RESULTS</a>
-    <a href="/survivor/board">SEASON BOARD</a>
-    <a href="/test-lab">TEST LAB</a>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button nav-coming-soon" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <span class="nav-placeholder">Coming soon</span>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
   </nav>
 </header>
 
@@ -23,7 +54,7 @@
 <section class="hero">
   <div>
     <div class="eyebrow">2026 SEASON</div>
-    <h1>Draft Team Pool</h1>
+    <h1>Draft Pool — Season Standings</h1>
     <p>Eight teams. Eighteen weeks. Every point matters. Season standings are driven by each selected team's point differential in completed games.</p>
   </div>
   <div class="hero-actions">
@@ -57,7 +88,7 @@
 <section class="card leaderboard-card">
   <div class="section-head">
     <div>
-      <h2>Season Leaderboard</h2>
+      <h2 id="leaderboard">Draft Pool — Season Leaderboard</h2>
       <p>Tap a player row to view the weekly scoring breakdown.</p>
     </div>
   </div>

@@ -7,15 +7,46 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <b>🏈 NFL DEGENERATES POOL</b>
-  <nav>
-    <a href="/">NFL RESULTS</a>
-    <a href="/draft">DRAFT TEAM POOL</a>
-    <a href="/survivor">SURVIVOR PICKS</a>
-    <a href="/survivor/results">WEEKLY RESULTS</a>
-    <a class="active-nav" href="/survivor/board">SEASON BOARD</a>
-    <a href="/test-lab">TEST LAB</a>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button nav-coming-soon" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <span class="nav-placeholder">Coming soon</span>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
   </nav>
 </header>
 
@@ -23,7 +54,7 @@
 <section class="hero">
   <div>
     <div class="eyebrow">{{season}} SURVIVOR POOL</div>
-    <h1>Season Survivor Board</h1>
+    <h1>Survivor Pool — Season Board</h1>
     <p>Every player, every week, and every result in one view. Green picks survived; red picks ended that entry; pending games remain open.</p>
   </div>
   <div class="hero-actions">
@@ -42,7 +73,7 @@
   <div class="section-head">
     <div>
       <div class="eyebrow dark-eyebrow">FULL SEASON</div>
-      <h2>Survivor Matrix</h2>
+      <h2>Survivor Pool — Season Matrix</h2>
       <p>Scroll horizontally to view all 18 weeks.</p>
     </div>
   </div>

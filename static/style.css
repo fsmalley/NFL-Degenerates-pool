@@ -150,3 +150,98 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 .asof-control select{padding:8px 10px;border:1px solid #cfd6df;border-radius:8px;background:#fff}
 .selected-week-cell{outline:2px solid #c9a227;outline-offset:-2px;background:#fffdf5!important}
 .draft-test-table small{white-space:nowrap}
+
+
+/* V2.3 Organized Pool Navigation */
+.site-header{
+  background:rgba(8,14,26,.97);
+  color:#fff;
+  padding:14px 4%;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:24px;
+  position:sticky;
+  top:0;
+  z-index:100;
+  border-bottom:1px solid rgba(255,255,255,.08)
+}
+.site-brand{
+  color:#fff!important;
+  text-decoration:none;
+  letter-spacing:.08em;
+  font-size:15px!important;
+  font-weight:900!important;
+  padding:8px 0!important;
+  white-space:nowrap
+}
+.pool-nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.nav-direct,.nav-group-button{
+  color:#cbd3df;
+  background:transparent;
+  border:0;
+  text-decoration:none;
+  font-weight:900;
+  font-size:12px;
+  padding:10px 12px;
+  border-radius:8px;
+  letter-spacing:.02em
+}
+.nav-group-button{cursor:pointer}
+.nav-direct:hover,.nav-direct.active-nav,.nav-group-button:hover,.nav-group-active>.nav-group-button{
+  color:#fff;
+  background:rgba(255,255,255,.09)
+}
+.nav-group{position:relative}
+.nav-caret{font-size:10px;margin-left:4px;opacity:.75}
+.nav-dropdown{
+  position:absolute;
+  top:calc(100% + 7px);
+  left:0;
+  min-width:220px;
+  background:#111a2b;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:12px;
+  box-shadow:0 18px 45px rgba(0,0,0,.32);
+  padding:8px;
+  opacity:0;
+  visibility:hidden;
+  transform:translateY(-4px);
+  transition:opacity .16s ease,transform .16s ease,visibility .16s;
+  z-index:120
+}
+.nav-group:hover .nav-dropdown,.nav-group:focus-within .nav-dropdown{
+  opacity:1;visibility:visible;transform:translateY(0)
+}
+.nav-dropdown-heading{
+  color:#e1b75f;
+  font-size:10px;
+  letter-spacing:.15em;
+  font-weight:900;
+  padding:8px 10px 6px
+}
+.site-header .nav-dropdown a{
+  display:block;
+  color:#d8dee8;
+  padding:10px 11px;
+  border-radius:8px;
+  font-size:12px;
+  font-weight:800
+}
+.site-header .nav-dropdown a:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-placeholder{display:block;color:#7f8999;padding:10px 11px;font-size:12px;font-weight:800}
+.nav-coming-soon{opacity:.78}
+
+@media(max-width:900px){
+  .site-header{align-items:flex-start;flex-direction:column;gap:8px;padding:12px 18px}
+  .pool-nav{width:100%;gap:4px}
+  .nav-direct,.nav-group-button{font-size:11px;padding:9px 9px}
+  .nav-dropdown{left:0;min-width:205px}
+}
+@media(max-width:600px){
+  .site-header{position:relative}
+  .pool-nav{display:grid;grid-template-columns:1fr 1fr;width:100%}
+  .nav-group,.nav-direct{width:100%}
+  .nav-group-button,.nav-direct{display:block;width:100%;text-align:left}
+  .nav-dropdown{position:absolute;top:100%;left:0;right:auto}
+}

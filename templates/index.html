@@ -1,12 +1,46 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NFL Results</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><header><b>🏈 NFL DEGENERATES POOL</b><nav>
-<a class="active-nav" href="/">NFL RESULTS</a>
-<a href="/draft">DRAFT TEAM POOL</a>
-<a href="/survivor">SURVIVOR PICKS</a>
-<a href="/survivor/results">WEEKLY RESULTS</a>
-    <a href="/survivor/board">SEASON BOARD</a>
-    <a href="/test-lab">TEST LAB</a>
-</nav></header><main>
+<body><header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct active-nav" href="/">NFL RESULTS</a>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button nav-coming-soon" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <span class="nav-placeholder">Coming soon</span>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+  </nav>
+</header><main>
 <h1>NFL Weekly Results</h1><p>Choose a week. Completed games show the winner and point differential.</p>
 <div class="weeks">{% for w in range(1,19) %}<a class="{% if w==week %}active{% endif %}" href="/?week={{w}}">Week {{w}}</a>{% endfor %}</div>
 <section class="card"><table><thead><tr><th>Game</th><th>Score</th><th>Winner</th><th>Point Differential</th></tr></thead><tbody id="games"><tr><td colspan="4">Loading…</td></tr></tbody></table></section><p id="notice"></p>
