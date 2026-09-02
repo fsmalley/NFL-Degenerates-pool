@@ -479,3 +479,13 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .member-password-grid{grid-template-columns:1fr}
   .member-password-grid button{width:100%}
 }
+
+/* V2.10.1 — Login title optical alignment */
+.member-login-card h1{
+  position:relative;
+  left:-8px;
+  width:calc(100% + 8px);
+}
+@media(max-width:600px){
+  .member-login-card h1{left:-4px;width:calc(100% + 4px)}
+}
