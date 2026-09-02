@@ -30,6 +30,82 @@ TEAMS = {
     "SEA":"Seattle Seahawks","TB":"Tampa Bay Buccaneers","TEN":"Tennessee Titans","WAS":"Washington Commanders"
 }
 
+DEFAULT_DRAFT_SALARY_CAP = 39500
+DEFAULT_DRAFT_TEAM_SALARIES = {
+    "BUF": 8000,
+    "PHI": 7800,
+    "KC": 7600,
+    "SF": 7400,
+    "MIN": 7250,
+    "BAL": 7050,
+    "GB": 6850,
+    "DAL": 6650,
+    "LAR": 6450,
+    "SEA": 6300,
+    "DET": 6150,
+    "PIT": 6000,
+    "TB": 5850,
+    "LAC": 5700,
+    "CIN": 5550,
+    "DEN": 5400,
+    "MIA": 5250,
+    "NE": 5100,
+    "HOU": 4950,
+    "IND": 4800,
+    "JAX": 4650,
+    "ATL": 4500,
+    "WAS": 4350,
+    "NO": 4200,
+    "CLE": 4050,
+    "CHI": 3900,
+    "TEN": 3750,
+    "LV": 3600,
+    "ARI": 3450,
+    "CAR": 3300,
+    "NYJ": 3150,
+    "NYG": 3000
+}
+
+def draft_salary_config():
+    """Return season-specific Draft Pool salary cap and team values."""
+    cap = DEFAULT_DRAFT_SALARY_CAP
+    salaries = dict(DEFAULT_DRAFT_TEAM_SALARIES)
+
+    try:
+        settings = sb_get(
+            "draft_salary_settings",
+            {"select":"salary_cap","season":f"eq.{SEASON}","limit":"1"}
+        )
+        if settings and settings[0].get("salary_cap") is not None:
+            cap = int(settings[0]["salary_cap"])
+    except Exception:
+        pass
+
+    try:
+        rows = sb_get(
+            "draft_team_values",
+            {"select":"team,salary","season":f"eq.{SEASON}","order":"salary.desc"}
+        )
+        for row in rows:
+            team = str(row.get("team") or "").upper()
+            if team in TEAMS and row.get("salary") is not None:
+                salaries[team] = int(row["salary"])
+    except Exception:
+        pass
+
+    return {"salary_cap": cap, "team_salaries": salaries}
+
+def draft_player_salary(player, salaries):
+    selected = []
+    total = 0
+    for n in range(1, 9):
+        team = str(player.get(f"team{n}") or "").strip().upper()
+        if team:
+            selected.append(team)
+            total += int(salaries.get(team, 0))
+    return total, selected
+
+
 def sb_headers(extra=None):
     h = {
         "apikey": SUPABASE_SERVICE_KEY,
@@ -220,6 +296,15 @@ def draft_data():
         p["games_count"] = count
         p["weekly_scores"] = weekly
         p["weekly_games"] = weekly_games
+
+    salary_config = draft_salary_config()
+    salary_cap = salary_config["salary_cap"]
+    salaries = salary_config["team_salaries"]
+    for p in players:
+        salary_used, _ = draft_player_salary(p, salaries)
+        p["salary_used"] = salary_used
+        p["salary_remaining"] = salary_cap - salary_used
+        p["salary_cap"] = salary_cap
 
     players.sort(key=lambda p: (-p["total_points"], p["player_name"].lower()))
     rank = 0
@@ -691,7 +776,9 @@ def health():
         sb_get("survivor_picks", {"select":"id","limit":"1"})
         sb_get("survivor_players", {"select":"id","limit":"1"})
         sb_get("survivor_week_settings", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings"]}), 200
+        sb_get("draft_salary_settings", {"select":"id","limit":"1"})
+        sb_get("draft_team_values", {"select":"id","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500
@@ -721,13 +808,22 @@ def api_admin_check():
 @app.route("/api/draft", methods=["GET","POST"])
 def api_draft():
     if request.method=="GET":
-        return jsonify({"players":draft_data(),"teams":TEAMS})
+        salary_config = draft_salary_config()
+        return jsonify({
+            "players":draft_data(),
+            "teams":TEAMS,
+            "salary_cap":salary_config["salary_cap"],
+            "team_salaries":salary_config["team_salaries"]
+        })
     payload=request.get_json(silent=True) or {}
     if not ADMIN_PASSWORD:
         return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured on the server."}),500
     if payload.get("password","") != ADMIN_PASSWORD:
         return jsonify({"ok":False,"error":"Incorrect admin password."}),403
-    now=dt.datetime.utcnow().isoformat()
+    now=dt.datetime.now(dt.timezone.utc).isoformat()
+    salary_config = draft_salary_config()
+    salary_cap = int(salary_config["salary_cap"])
+    salaries = salary_config["team_salaries"]
     rows=[]
     for p in payload.get("players",[]):
         pid=p.get("id")
@@ -752,10 +848,78 @@ def api_draft():
         if len(selected) != len(set(selected)):
             return jsonify({"ok":False,"error":f"{row['player_name']} has the same NFL team selected more than once."}),400
 
+        salary_used = sum(int(salaries.get(team, 0)) for team in selected)
+        if salary_used > salary_cap:
+            return jsonify({
+                "ok":False,
+                "error":f"{row['player_name']} is over the Draft Pool salary cap by ${salary_used - salary_cap:,.0f}. "
+                        f"Salary used: ${salary_used:,.0f}; cap: ${salary_cap:,.0f}."
+            }),400
+
         rows.append(row)
 
     sb_upsert("draft_players",rows,"id")
     return jsonify({"ok":True,"players":draft_data()})
+
+
+
+@app.route("/api/draft/salary-settings", methods=["GET","POST"])
+def api_draft_salary_settings():
+    if request.method == "GET":
+        config = draft_salary_config()
+        return jsonify({
+            "ok": True,
+            "season": SEASON,
+            "salary_cap": config["salary_cap"],
+            "team_salaries": config["team_salaries"]
+        })
+
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured on the server."}),500
+    if payload.get("password","") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect admin password."}),403
+
+    try:
+        salary_cap = int(payload.get("salary_cap", 0))
+    except Exception:
+        salary_cap = 0
+    if salary_cap <= 0:
+        return jsonify({"ok":False,"error":"Salary cap must be greater than $0."}),400
+
+    submitted = payload.get("team_salaries") or {}
+    salary_rows = []
+    for team in TEAMS:
+        try:
+            value = int(submitted.get(team, 0))
+        except Exception:
+            value = 0
+        if value <= 0:
+            return jsonify({"ok":False,"error":f"Enter a valid salary for {TEAMS[team]}."}),400
+        salary_rows.append({
+            "season": SEASON,
+            "team": team,
+            "salary": value,
+            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat()
+        })
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    try:
+        sb_upsert("draft_salary_settings", [{
+            "season": SEASON,
+            "salary_cap": salary_cap,
+            "updated_at": now
+        }], "season")
+        sb_upsert("draft_team_values", salary_rows, "season,team")
+        return jsonify({
+            "ok": True,
+            "message": f"{SEASON} Draft Pool salary settings saved.",
+            "salary_cap": salary_cap,
+            "team_salaries": {r["team"]: r["salary"] for r in salary_rows}
+        })
+    except Exception as e:
+        print(f"DRAFT SALARY SETTINGS ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok":False,"error":"Could not save Draft Pool salary settings."}),500
 
 
 @app.route("/api/survivor/pick", methods=["POST"])

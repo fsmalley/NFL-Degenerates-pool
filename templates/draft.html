@@ -59,6 +59,7 @@
   </div>
   <div class="hero-actions">
     <button id="editBtn" class="secondary">Commissioner Mode</button>
+    <button id="salarySettingsBtn" class="secondary hidden">Salary Settings</button>
     <button id="saveBtn" class="primary hidden">Save Changes</button>
     <button id="cancelBtn" class="ghost hidden">Cancel</button>
   </div>
@@ -83,6 +84,31 @@
     <span>Scoring Weeks</span>
     <strong id="weeksScored">—</strong>
   </div>
+  <div class="summary-card">
+    <span>Draft Salary Cap</span>
+    <strong id="salaryCapSummary">—</strong>
+  </div>
+</section>
+
+<section id="salarySettingsPanel" class="card draft-salary-settings hidden">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">COMMISSIONER SETTINGS</div>
+      <h2>{{season}} Draft Pool Salary Settings</h2>
+      <p>Adjust the season salary cap and individual NFL team values. Changes apply to all Draft Pool selections for this season.</p>
+    </div>
+    <button id="closeSalarySettings" class="ghost" type="button">Close</button>
+  </div>
+
+  <div class="salary-cap-editor">
+    <label>
+      <span>Salary Cap</span>
+      <input id="salaryCapInput" type="number" min="1" step="50">
+    </label>
+    <button id="saveSalarySettings" class="primary" type="button">Save Salary Settings</button>
+  </div>
+
+  <div id="salaryTeamGrid" class="salary-team-grid"></div>
 </section>
 
 <section class="card leaderboard-card">
@@ -101,12 +127,14 @@
           <th>Player</th>
           <th>Team 1</th><th>Team 2</th><th>Team 3</th><th>Team 4</th>
           <th>Team 5</th><th>Team 6</th><th>Team 7</th><th>Team 8</th>
+          <th>Salary Used</th>
+          <th>Remaining</th>
           <th>Games</th>
           <th>Total</th>
         </tr>
       </thead>
       <tbody id="body">
-        <tr><td colspan="12">Loading…</td></tr>
+        <tr><td colspan="14">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -127,6 +155,8 @@
 <script>
 let players = [];
 let teams = {};
+let teamSalaries = {};
+let salaryCap = 39500;
 let editing = false;
 let adminPassword = "";
 let originalPlayers = [];
@@ -153,11 +183,51 @@ function scoreText(n) {
   return n > 0 ? "+" + n : String(n);
 }
 
+function money(n) {
+  return "$" + Number(n || 0).toLocaleString("en-US");
+}
+
+function playerSalaryFromObject(player) {
+  let used = 0;
+  for (let n=1; n<=8; n++) {
+    const team = (player["team"+n] || "").trim();
+    if (team) used += Number(teamSalaries[team] || 0);
+  }
+  return used;
+}
+
+function rowSalaryFromInputs(playerId) {
+  let used = 0;
+  document.querySelectorAll(`select.team-select[data-id="${playerId}"]`).forEach(sel => {
+    if (sel.value) used += Number(teamSalaries[sel.value] || 0);
+  });
+  return used;
+}
+
+function updateSalaryDisplay(playerId) {
+  const used = rowSalaryFromInputs(playerId);
+  const remaining = salaryCap - used;
+  const usedEl = document.querySelector(`[data-salary-used="${playerId}"]`);
+  const remainEl = document.querySelector(`[data-salary-remaining="${playerId}"]`);
+  const row = document.querySelector(`[data-row="${playerId}"]`);
+
+  if (usedEl) usedEl.textContent = money(used);
+  if (remainEl) {
+    remainEl.textContent = money(remaining);
+    remainEl.className = "salary-remaining " + (remaining < 0 ? "over-cap" : remaining < 1000 ? "near-cap" : "under-cap");
+  }
+  if (row) row.classList.toggle("salary-over-cap", remaining < 0);
+}
+
+function updateAllSalaryDisplays() {
+  players.forEach(p => updateSalaryDisplay(p.id));
+}
+
 function teamOptions(selected) {
   const sorted = Object.entries(teams).sort((a,b) => a[1].localeCompare(b[1]));
   return '<option value="">—</option>' +
     sorted.map(([abbr,name]) =>
-      `<option value="${abbr}" ${abbr===selected ? "selected" : ""}>${abbr} — ${esc(name)}</option>`
+      `<option value="${abbr}" ${abbr===selected ? "selected" : ""}>${abbr} — ${esc(name)} — ${money(teamSalaries[abbr] || 0)}</option>`
     ).join("");
 }
 
@@ -185,6 +255,7 @@ function renderSummary() {
     });
   });
   $("weeksScored").textContent = weeks.size;
+  $("salaryCapSummary").textContent = money(salaryCap);
 }
 
 function render() {
@@ -200,6 +271,8 @@ function render() {
       <td><span class="rank-badge">${p.rank}</span></td>
       <td>${playerName}</td>
       ${teamCells}
+      <td><strong data-salary-used="${p.id}">${money(editing ? playerSalaryFromObject(p) : p.salary_used)}</strong></td>
+      <td><strong data-salary-remaining="${p.id}" class="salary-remaining">${money(editing ? salaryCap-playerSalaryFromObject(p) : p.salary_remaining)}</strong></td>
       <td>${p.games_count}</td>
       <td><span class="score ${scoreClass(p.total_points)}">${scoreText(p.total_points)}</span></td>
     </tr>`;
@@ -209,7 +282,21 @@ function render() {
     document.querySelectorAll(".player-link").forEach(btn => {
       btn.onclick = () => showWeekly(Number(btn.dataset.player));
     });
+  } else {
+    document.querySelectorAll(".team-select").forEach(sel => {
+      sel.addEventListener("change", () => updateSalaryDisplay(Number(sel.dataset.id)));
+    });
+    updateAllSalaryDisplays();
   }
+
+  // Apply status styling in both read and edit modes.
+  players.forEach(p => {
+    const remaining = editing ? salaryCap-playerSalaryFromObject(p) : Number(p.salary_remaining || 0);
+    const remainEl = document.querySelector(`[data-salary-remaining="${p.id}"]`);
+    const row = document.querySelector(`[data-row="${p.id}"]`);
+    if (remainEl) remainEl.className = "salary-remaining " + (remaining < 0 ? "over-cap" : remaining < 1000 ? "near-cap" : "under-cap");
+    if (row) row.classList.toggle("salary-over-cap", remaining < 0);
+  });
 
   renderSummary();
 }
@@ -243,6 +330,8 @@ async function load() {
   }
   players = d.players;
   teams = d.teams;
+  teamSalaries = d.team_salaries || {};
+  salaryCap = Number(d.salary_cap || 39500);
   originalPlayers = JSON.parse(JSON.stringify(players));
   render();
 }
@@ -278,6 +367,7 @@ $("editBtn").onclick = async () => {
   editing = true;
   originalPlayers = JSON.parse(JSON.stringify(players));
   $("editBtn").classList.add("hidden");
+  $("salarySettingsBtn").classList.remove("hidden");
   $("saveBtn").classList.remove("hidden");
   $("cancelBtn").classList.remove("hidden");
   $("weeklyPanel").classList.add("hidden");
@@ -290,6 +380,8 @@ $("cancelBtn").onclick = () => {
   editing = false;
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
+  $("salarySettingsBtn").classList.add("hidden");
+  $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
   hideStatus();
@@ -316,6 +408,13 @@ $("saveBtn").onclick = async () => {
       showStatus(`${p.player_name || "A player"} has the same NFL team selected more than once.`, "error");
       return;
     }
+    const salaryUsed = selected.reduce((sum,t) => sum + Number(teamSalaries[t] || 0), 0);
+    if (salaryUsed > salaryCap) {
+      showStatus(`${p.player_name || "A player"} is over the ${money(salaryCap)} salary cap by ${money(salaryUsed-salaryCap)}.`, "error");
+      const row=document.querySelector(`[data-row="${p.id}"]`);
+      if(row) row.scrollIntoView({behavior:"smooth",block:"center"});
+      return;
+    }
   }
 
   showStatus("Saving changes…", "ok");
@@ -337,10 +436,78 @@ $("saveBtn").onclick = async () => {
   editing = false;
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
+  $("salarySettingsBtn").classList.add("hidden");
+  $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
   showStatus("Changes saved permanently ✓", "ok");
   render();
+};
+
+
+function renderSalarySettings() {
+  $("salaryCapInput").value = salaryCap;
+  const sorted = Object.entries(teams).sort((a,b) => {
+    const diff = Number(teamSalaries[b[0]] || 0) - Number(teamSalaries[a[0]] || 0);
+    return diff || a[1].localeCompare(b[1]);
+  });
+  $("salaryTeamGrid").innerHTML = sorted.map(([abbr,name],index) => `
+    <label class="salary-team-item">
+      <span class="salary-rank">${index+1}</span>
+      <span class="salary-team-name"><strong>${esc(abbr)}</strong> ${esc(name)}</span>
+      <input type="number" min="1" step="50" data-salary-team="${abbr}" value="${Number(teamSalaries[abbr] || 0)}">
+    </label>
+  `).join("");
+}
+
+$("salarySettingsBtn").onclick = () => {
+  if (!editing || !adminPassword) return;
+  renderSalarySettings();
+  $("salarySettingsPanel").classList.remove("hidden");
+  $("salarySettingsPanel").scrollIntoView({behavior:"smooth",block:"start"});
+};
+
+$("closeSalarySettings").onclick = () => $("salarySettingsPanel").classList.add("hidden");
+
+$("saveSalarySettings").onclick = async () => {
+  if (!editing || !adminPassword) return;
+
+  // Preserve current unsaved team/player edits before the salary table re-renders.
+  players.forEach(p => {
+    document.querySelectorAll(`[data-id="${p.id}"]`).forEach(input => {
+      p[input.dataset.field] = input.value;
+    });
+  });
+
+  const cap = Number($("salaryCapInput").value || 0);
+  const values = {};
+  document.querySelectorAll("[data-salary-team]").forEach(input => {
+    values[input.dataset.salaryTeam] = Number(input.value || 0);
+  });
+
+  if (cap <= 0 || Object.values(values).some(v => v <= 0)) {
+    showStatus("Enter a valid salary cap and a positive value for every NFL team.", "error");
+    return;
+  }
+
+  showStatus("Saving salary settings…", "ok");
+  const r = await fetch("/api/draft/salary-settings", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password:adminPassword,salary_cap:cap,team_salaries:values})
+  });
+  const d = await r.json();
+
+  if (!r.ok) {
+    showStatus(d.error || "Salary settings could not be saved.", "error");
+    return;
+  }
+
+  salaryCap = Number(d.salary_cap);
+  teamSalaries = d.team_salaries || values;
+  renderSalarySettings();
+  render();
+  showStatus(d.message + " Existing selections have been recalculated.", "ok");
 };
 
 $("closeWeekly").onclick = () => $("weeklyPanel").classList.add("hidden");

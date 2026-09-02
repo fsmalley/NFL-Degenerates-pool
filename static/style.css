@@ -275,3 +275,24 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 .survivor-setting-grid input{padding:10px 11px;border:1px solid #cfd6df;border-radius:8px;font:inherit}
 .survivor-status.submitted,.board-submitted{background:#eef3fb;color:#34517c}
 @media(max-width:700px){.survivor-setting-grid{grid-template-columns:1fr}}
+
+
+/* V2.7 Draft Pool Salary Cap */
+.draft-salary-settings{margin-bottom:22px}
+.salary-cap-editor{display:flex;align-items:end;gap:14px;flex-wrap:wrap;margin:8px 0 18px}
+.salary-cap-editor label{display:flex;flex-direction:column;gap:6px;font-weight:800}
+.salary-cap-editor input{min-width:180px;padding:11px 12px;border:1px solid #cfd6df;border-radius:9px;font:inherit}
+.salary-team-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px}
+.salary-team-item{display:grid;grid-template-columns:34px minmax(0,1fr) 110px;align-items:center;gap:9px;padding:9px 10px;border:1px solid #e0e5ec;border-radius:9px;background:#fafbfd}
+.salary-team-item input{width:100%;padding:8px;border:1px solid #cfd6df;border-radius:7px;font:inherit;text-align:right}
+.salary-rank{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#eef2f7;font-size:12px;font-weight:900}
+.salary-team-name{font-size:13px}
+.salary-remaining{white-space:nowrap}
+.salary-remaining.under-cap{color:#247044}
+.salary-remaining.near-cap{color:#9a6400}
+.salary-remaining.over-cap{color:#b42318}
+.player-row.salary-over-cap td{background-color:#fff4f3}
+.team-select{min-width:185px}
+@media(max-width:850px){
+  .salary-team-grid{grid-template-columns:1fr}
+}

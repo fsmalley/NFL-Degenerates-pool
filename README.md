@@ -212,3 +212,23 @@ V2.6 is a reliability-focused release. Confidence Pool remains **Coming Soon**.
 ### Deployment
 
 There is **no new Supabase migration for V2.6**. If V2.5 is already working, deploy the V2.6 code normally through GitHub/Render.
+
+
+## V2.7 Draft Pool Salary Cap & Team Values
+
+V2.7 adds a season-configurable salary system to the Draft Pool.
+
+- 2026 salary cap: **$39,500**
+- All 32 team values are seeded from the approved 2026 salary schedule
+- Draft team dropdowns display each team's salary
+- Every player row shows **Salary Used** and **Remaining**
+- Salary totals update immediately while teams are selected
+- Rows are visually flagged if a selection exceeds the cap
+- Duplicate team selections remain prohibited
+- The server independently rejects any Draft selection above the cap
+- Commissioner Mode includes **Salary Settings** to change the cap and all 32 team values
+- Salary cap/team values are stored by season for future-year setup
+
+### Required Supabase update
+
+Run `draft_v2_7_salary_schema_update.sql` once in the Supabase SQL Editor before deploying V2.7.
