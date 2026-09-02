@@ -69,6 +69,7 @@
     <button onclick="finalizeThrough(5)">Simulate Weeks 1–5</button>
     <button onclick="finalizeThrough(10)">Simulate Weeks 1–10</button>
     <button onclick="finalizeSeason()">Simulate Full Season</button>
+    <button class="secondary" onclick="runQualityChecks()">Run Quality Checks</button>
     <button onclick="resetTest()">Reset Test Data</button>
   </div>
   <div id="msg"></div>
@@ -105,6 +106,22 @@
       </thead>
       <tbody id="draft"><tr><td colspan="23">Enter commissioner password and seed the test pool.</td></tr></tbody>
     </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">V2.8 AUTOMATED CHECKS</div>
+      <h2>Reliability & Configuration Check</h2>
+      <p>Run read-only checks against the pool rules and the live Supabase configuration. These checks do not alter production pool data.</p>
+    </div>
+  </div>
+  <div class="quality-summary">
+    <strong id="qualitySummary">Not run yet</strong>
+  </div>
+  <div id="qualityChecks" class="quality-check-grid">
+    <div class="quality-placeholder">Enter the commissioner password and click <strong>Run Quality Checks</strong>.</div>
   </div>
 </section>
 
@@ -159,6 +176,46 @@ async function seed(){try{await call("/api/test-lab/seed")}catch(e){showMsg(e.me
 async function finalizeWeek1(){try{await call("/api/test-lab/finalize")}catch(e){showMsg(e.message,false)}}
 async function finalizeThrough(n){try{await call("/api/test-lab/finalize-range",{through:n})}catch(e){showMsg(e.message,false)}}
 async function finalizeSeason(){try{await call("/api/test-lab/finalize-season")}catch(e){showMsg(e.message,false)}}
+
+function renderQualityGroup(title, group){
+  const checks=(group?.checks||[]);
+  return `<div class="quality-group">
+    <h3>${esc(title)}</h3>
+    ${checks.map(c=>`<div class="quality-check ${c.passed?"pass":"fail"}">
+      <span class="quality-icon">${c.passed?"✓":"✕"}</span>
+      <div><strong>${esc(c.name)}</strong><small>${esc(c.detail||"")}</small></div>
+    </div>`).join("")}
+  </div>`;
+}
+
+async function runQualityChecks(){
+  if(!password()){
+    showMsg("Enter the commissioner password first.",false);
+    return;
+  }
+  showMsg("Running V2.8 quality checks…",true);
+  try{
+    const r=await fetch("/api/test-lab/quality-checks",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password:password()})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Quality checks failed.");
+
+    const q=d.quality||{};
+    const diag=d.diagnostics||{};
+    const passed=!!q.passed && !!diag.passed;
+    document.getElementById("qualitySummary").textContent=
+      `${passed?"PASS":"ATTENTION NEEDED"} — ${Number(q.passed_count||0)+Number(diag.passed_count||0)} of ${Number(q.total_count||0)+Number(diag.total_count||0)} checks passed`;
+    document.getElementById("qualitySummary").className=passed?"quality-pass":"quality-fail";
+    document.getElementById("qualityChecks").innerHTML=
+      renderQualityGroup("Pool Rule Checks",q)+renderQualityGroup("Live System Diagnostics",diag);
+    showMsg(passed ? "All V2.8 quality checks passed." : "One or more quality checks need attention.",passed);
+  }catch(e){
+    showMsg(e.message,false);
+  }
+}
 async function resetTest(){
   try{
     await call("/api/test-lab/reset");

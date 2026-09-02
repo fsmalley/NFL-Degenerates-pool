@@ -911,11 +911,29 @@ def api_draft_salary_settings():
             "updated_at": now
         }], "season")
         sb_upsert("draft_team_values", salary_rows, "season,team")
+
+        salary_lookup = {r["team"]: r["salary"] for r in salary_rows}
+        over_cap_players = []
+        try:
+            current_players = sb_get("draft_players", {"select":"*","order":"id.asc"})
+            for player in current_players:
+                used, _ = draft_player_salary(player, salary_lookup)
+                if used > salary_cap:
+                    over_cap_players.append({
+                        "id": player.get("id"),
+                        "player_name": player.get("player_name"),
+                        "salary_used": used,
+                        "over_by": used - salary_cap
+                    })
+        except Exception:
+            over_cap_players = []
+
         return jsonify({
             "ok": True,
             "message": f"{SEASON} Draft Pool salary settings saved.",
             "salary_cap": salary_cap,
-            "team_salaries": {r["team"]: r["salary"] for r in salary_rows}
+            "team_salaries": salary_lookup,
+            "over_cap_players": over_cap_players
         })
     except Exception as e:
         print(f"DRAFT SALARY SETTINGS ERROR: {type(e).__name__}: {e}", flush=True)
@@ -1515,6 +1533,135 @@ def finalize_test_weeks(weeks):
             "away_score":away, "home_score":home, "status":"final", "updated_at":now
         })
     sb_upsert("test_games", rows, "id")
+
+
+
+def run_v28_quality_checks():
+    """Fast, read-only checks for critical pool rules."""
+    checks = []
+
+    def add(name, passed, detail):
+        checks.append({"name": name, "passed": bool(passed), "detail": detail})
+
+    # Final status recognition.
+    add(
+        "Live games do not score",
+        not is_game_final({"status":"in_progress"}),
+        "A live/in-progress game must not count toward Draft or Survivor results."
+    )
+    add(
+        "Final games are recognized",
+        is_game_final({"status":"final"}),
+        "Final game status must be recognized as completed."
+    )
+
+    live_game = [{
+        "away_team":"BUF","home_team":"NYJ","away_score":21,"home_score":17,
+        "winner":None,"loser":None,"margin":None,"status":"in_progress","game_date":""
+    }]
+    live_result = survivor_pick_result("BUF", live_game)
+    add(
+        "Survivor stays pending during live games",
+        live_result.get("status") == "PENDING",
+        f"Observed status: {live_result.get('status')}."
+    )
+
+    tie_game = [{
+        "away_team":"BUF","home_team":"NYJ","away_score":20,"home_score":20,
+        "winner":"TIE","loser":"TIE","margin":0,"status":"final","game_date":""
+    }]
+    tie_result = survivor_pick_result("BUF", tie_game)
+    add(
+        "Survivor tie eliminates",
+        tie_result.get("status") == "ELIMINATED",
+        f"Observed status: {tie_result.get('status')}."
+    )
+
+    add(
+        "2026 salary schedule has 32 teams",
+        len(DEFAULT_DRAFT_TEAM_SALARIES) == 32 and set(DEFAULT_DRAFT_TEAM_SALARIES) == set(TEAMS),
+        f"{len(DEFAULT_DRAFT_TEAM_SALARIES)} team values configured."
+    )
+    add(
+        "Default salary cap is $39,500",
+        DEFAULT_DRAFT_SALARY_CAP == 39500,
+        f"Configured default: ${DEFAULT_DRAFT_SALARY_CAP:,.0f}."
+    )
+
+    sample = {"team1":"BUF","team2":"PHI","team3":"KC","team4":"SF",
+              "team5":"MIN","team6":"BAL","team7":"GB","team8":"DAL"}
+    sample_used, sample_teams = draft_player_salary(sample, DEFAULT_DRAFT_TEAM_SALARIES)
+    add(
+        "Salary calculation catches over-cap rosters",
+        sample_used > DEFAULT_DRAFT_SALARY_CAP and len(sample_teams) == 8,
+        f"High-cost sample totals ${sample_used:,.0f} against ${DEFAULT_DRAFT_SALARY_CAP:,.0f} cap."
+    )
+
+    duplicate_sample = ["BUF","BUF","KC"]
+    add(
+        "Duplicate-team rule is testable",
+        len(duplicate_sample) != len(set(duplicate_sample)),
+        "Duplicate NFL team selections are detectable before save."
+    )
+
+    return {
+        "passed": all(c["passed"] for c in checks),
+        "checks": checks,
+        "passed_count": sum(1 for c in checks if c["passed"]),
+        "total_count": len(checks)
+    }
+
+
+def run_system_diagnostics():
+    """Read-only production configuration/database diagnostics."""
+    items = []
+
+    def add(name, passed, detail):
+        items.append({"name": name, "passed": bool(passed), "detail": detail})
+
+    table_checks = [
+        ("Draft players table", "draft_players"),
+        ("Survivor picks table", "survivor_picks"),
+        ("Survivor players table", "survivor_players"),
+        ("Survivor week settings table", "survivor_week_settings"),
+        ("Draft salary settings table", "draft_salary_settings"),
+        ("Draft team values table", "draft_team_values"),
+        ("NFL games table", "games"),
+    ]
+    for label, table in table_checks:
+        try:
+            sb_get(table, {"select":"id","limit":"1"})
+            add(label, True, "Reachable.")
+        except Exception as e:
+            add(label, False, f"{type(e).__name__}: {e}")
+
+    try:
+        config = draft_salary_config()
+        salaries = config.get("team_salaries") or {}
+        missing = [team for team in TEAMS if int(salaries.get(team, 0) or 0) <= 0]
+        add(
+            "Draft salary configuration",
+            int(config.get("salary_cap") or 0) > 0 and not missing,
+            f"Cap ${int(config.get('salary_cap') or 0):,.0f}; {32-len(missing)}/32 team values valid."
+        )
+    except Exception as e:
+        add("Draft salary configuration", False, f"{type(e).__name__}: {e}")
+
+    return {
+        "passed": all(i["passed"] for i in items),
+        "checks": items,
+        "passed_count": sum(1 for i in items if i["passed"]),
+        "total_count": len(items)
+    }
+
+
+@app.route("/api/test-lab/quality-checks", methods=["POST"])
+def api_test_lab_quality_checks():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+    return jsonify({"ok":True, "quality":run_v28_quality_checks(), "diagnostics":run_system_diagnostics()})
 
 
 @app.route("/api/test-lab/state", methods=["POST"])

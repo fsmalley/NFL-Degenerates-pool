@@ -296,8 +296,7 @@ document.getElementById("pickForm").addEventListener("submit",async(e)=>{
   }catch(err){
     showStatus("Could not connect to the server. Please try again.","error");
   }finally{
-    btn.disabled=false;
-    btn.textContent="Lock In Pick";
+    await loadWeekTeams();
   }
 });
 

@@ -296,3 +296,31 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 @media(max-width:850px){
   .salary-team-grid{grid-template-columns:1fr}
 }
+
+
+/* V2.8 Reliability & Test Lab Refinement */
+.quality-summary{margin:0 0 14px;padding:12px 14px;border-radius:9px;background:#f7f9fc}
+.quality-pass{color:var(--green)}
+.quality-fail{color:var(--red)}
+.quality-check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.quality-group{border:1px solid #dde3eb;border-radius:11px;padding:14px;background:#fafbfd}
+.quality-group h3{margin:0 0 10px;font-size:14px}
+.quality-check{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;padding:9px 0;border-top:1px solid #edf0f4}
+.quality-check:first-of-type{border-top:0}
+.quality-check strong{display:block;font-size:12px}
+.quality-check small{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-top:2px}
+.quality-check.pass .quality-icon{color:var(--green)}
+.quality-check.fail .quality-icon{color:var(--red)}
+.quality-icon{font-weight:900;font-size:16px}
+.quality-placeholder{color:var(--muted);font-size:13px}
+.tablewrap{overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}
+@media(max-width:800px){
+  .quality-check-grid{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .hero-actions{width:100%}
+  .hero-actions .primary,.hero-actions .secondary,.hero-actions .ghost,.hero-actions .button-link{width:100%;text-align:center}
+  .test-controls{align-items:stretch}
+  .test-controls input,.test-controls button{width:100%;min-width:0}
+  .survivor-admin-controls input,.survivor-admin-controls button{width:100%;min-width:0}
+}

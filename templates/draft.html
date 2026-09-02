@@ -507,7 +507,15 @@ $("saveSalarySettings").onclick = async () => {
   teamSalaries = d.team_salaries || values;
   renderSalarySettings();
   render();
-  showStatus(d.message + " Existing selections have been recalculated.", "ok");
+
+  const over = d.over_cap_players || [];
+  if(over.length){
+    const names=over.slice(0,5).map(p=>`${p.player_name} (${money(p.salary_used)})`).join(", ");
+    const more=over.length>5 ? ` and ${over.length-5} more` : "";
+    showStatus(`${d.message} Warning: ${over.length} existing player${over.length===1?" is":"s are"} now over the cap: ${names}${more}.`, "error");
+  }else{
+    showStatus(d.message + " Existing selections have been recalculated and all players remain within the cap.", "ok");
+  }
 };
 
 $("closeWeekly").onclick = () => $("weeklyPanel").classList.add("hidden");

@@ -232,3 +232,15 @@ V2.7 adds a season-configurable salary system to the Draft Pool.
 ### Required Supabase update
 
 Run `draft_v2_7_salary_schema_update.sql` once in the Supabase SQL Editor before deploying V2.7.
+
+
+## V2.8 Reliability & Test Lab Refinement
+
+V2.8 is a quality-focused release. Confidence Pool remains Coming Soon.
+
+- Added commissioner-only automated quality checks and live Supabase diagnostics.
+- Fixed Survivor submit-button state after the weekly deadline.
+- Draft salary changes warn if existing rosters become over the cap.
+- Improved mobile commissioner controls and touch-friendly table scrolling.
+- Quality checks are read-only and do not alter live pool records.
+- No Supabase schema migration is required for V2.8.
