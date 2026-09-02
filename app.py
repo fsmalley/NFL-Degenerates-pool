@@ -221,15 +221,98 @@ def normalize_game(game, week, index):
         "updated_at": dt.datetime.utcnow().isoformat()
     }
 
+
+ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+
+def normalize_schedule_team(code):
+    """Normalize ESPN/NFLData team abbreviations to this app's codes."""
+    code = str(code or "").strip().upper()
+    aliases = {
+        "WSH": "WAS",
+        "JAC": "JAX",
+        "LA": "LAR",
+        "OAK": "LV",
+        "SD": "LAC",
+        "STL": "LAR",
+    }
+    return aliases.get(code, code)
+
+def fetch_espn_week_schedule(week):
+    """Return matchup -> ESPN kickoff timestamp for one NFL regular-season week."""
+    r = requests.get(
+        ESPN_SCOREBOARD_URL,
+        params={"dates": SEASON, "seasontype": 2, "week": int(week), "limit": 100},
+        timeout=20
+    )
+    r.raise_for_status()
+    payload = r.json() if r.content else {}
+    schedule = {}
+
+    for event in payload.get("events") or []:
+        kickoff = str(event.get("date") or "").strip()
+        competitions = event.get("competitions") or []
+        if not competitions:
+            continue
+
+        competitors = competitions[0].get("competitors") or []
+        away = home = ""
+        for competitor in competitors:
+            team = competitor.get("team") or {}
+            code = normalize_schedule_team(
+                team.get("abbreviation") or team.get("shortDisplayName") or team.get("name")
+            )
+            if competitor.get("homeAway") == "away":
+                away = code
+            elif competitor.get("homeAway") == "home":
+                home = code
+
+        if away and home and kickoff:
+            schedule[(away, home)] = kickoff
+            # Pair lookup makes the enrichment resilient if source home/away is ever inverted.
+            schedule[(home, away)] = kickoff
+
+    return schedule
+
 def sync_week(week):
-    r = requests.get(f"{API_BASE}/v1/games", params={"season":SEASON,"week":week,"game_type":"REG","limit":100}, timeout=20)
+    r = requests.get(
+        f"{API_BASE}/v1/games",
+        params={"season":SEASON,"week":week,"game_type":"REG","limit":100},
+        timeout=20
+    )
     r.raise_for_status()
     raw = games_from(r.json())
     if not raw:
-        r = requests.get(f"{API_BASE}/v1/games", params={"season":SEASON,"limit":1000}, timeout=20)
+        r = requests.get(
+            f"{API_BASE}/v1/games",
+            params={"season":SEASON,"limit":1000},
+            timeout=20
+        )
         r.raise_for_status()
         raw = [g for g in games_from(r.json()) if int(g.get("week",-1) or -1) == week]
-    sb_upsert("games", [normalize_game(g,week,i) for i,g in enumerate(raw)], "id")
+
+    # NFLData remains the authoritative results source. ESPN is used to enrich
+    # the schedule with actual kickoff timestamps because NFLData commonly
+    # supplies date-only values for future games.
+    try:
+        espn_schedule = fetch_espn_week_schedule(week)
+    except Exception as e:
+        espn_schedule = {}
+        print(f"ESPN SCHEDULE WARNING WEEK {week}: {type(e).__name__}: {e}", flush=True)
+
+    normalized = []
+    for i, game in enumerate(raw):
+        row = normalize_game(game, week, i)
+        matchup = (
+            normalize_schedule_team(row.get("away_team")),
+            normalize_schedule_team(row.get("home_team"))
+        )
+        kickoff = espn_schedule.get(matchup)
+        if kickoff:
+            row["game_date"] = kickoff
+        normalized.append(row)
+
+    sb_upsert("games", normalized, "id")
+
 
 def get_week(week):
     rows = sb_get("games", {"select":"*","season":f"eq.{SEASON}","week":f"eq.{week}","order":"game_date.asc"})

@@ -278,3 +278,20 @@ Run `confidence_v2_9_schema_update.sql` in the Supabase SQL Editor before deploy
 
 ### V2.9 Test Lab
 The existing commissioner quality check now also verifies Confidence Pool rule basics and the three new Confidence Supabase tables.
+
+
+## V2.9.1 — Scheduled Game Dates & Kickoff Times
+
+V2.9.1 fixes future-game schedule timing.
+
+- NFLData remains the source for NFL games, scores, winners, and margins.
+- ESPN's NFL scoreboard schedule is used to enrich each matchup with the actual scheduled kickoff timestamp.
+- Matchups are paired by away/home teams, including abbreviation normalization such as WSH -> WAS.
+- The enriched kickoff timestamp is saved back into the existing `games.game_date` field.
+- Confidence Pool games now sort in true scheduled order.
+- The final scheduled game used for the weekly tiebreaker is determined using actual kickoff timestamps.
+- Confidence entries lock at kickoff of the actual first game of the week.
+- Survivor kickoff locks also benefit from the improved timestamps.
+- If ESPN is temporarily unavailable, the app falls back to the existing NFLData schedule instead of breaking.
+
+No Supabase schema migration is required for V2.9.1.
