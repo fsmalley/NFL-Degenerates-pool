@@ -192,3 +192,23 @@ V2.5 adds weekly Survivor privacy and deadline controls.
 ### Required Supabase update
 
 Run `survivor_v2_5_visibility_schema_update.sql` once in the Supabase SQL Editor before deploying V2.5.
+
+## V2.6 Quality & Refinement
+
+V2.6 is a reliability-focused release. Confidence Pool remains **Coming Soon**.
+
+### Production safeguards
+
+- Draft Pool point differential is counted only after the NFL data source explicitly reports the game as final/completed/closed.
+- Survivor outcomes remain Pending until the game is explicitly final, even if live scores are present.
+- Public Survivor Season Board no longer leaks an elimination before that week's reveal time.
+- Server-side Survivor validation blocks a team that is not scheduled to play that week, including bye-week teams.
+- Draft standings now use shared competition ranking for tied totals (1, 1, 3).
+- Survivor player lookup and creation are explicitly season-scoped.
+- New Survivor PIN records use Werkzeug hashing while retaining compatibility with the prior V2.x custom PIN hash format.
+- Health check now verifies Draft, Survivor picks, Survivor players, and weekly Survivor settings tables.
+- Duplicate/dead helper implementations were removed from app.py.
+
+### Deployment
+
+There is **no new Supabase migration for V2.6**. If V2.5 is already working, deploy the V2.6 code normally through GitHub/Render.

@@ -105,6 +105,17 @@ def games_from(payload):
                 return payload[k]
     return []
 
+def is_game_final(game_or_status):
+    """Return True only when the source explicitly reports a completed game."""
+    if isinstance(game_or_status, dict):
+        status = str(game_or_status.get("status") or "").strip().lower()
+    else:
+        status = str(game_or_status or "").strip().lower()
+    if not status:
+        return False
+    return any(token in status for token in ("final", "complete", "completed", "closed"))
+
+
 def normalize_game(game, week, index):
     away = team_code(pick(game, "away_team","away","away_team_abbr","away_abbr")) or ""
     home = team_code(pick(game, "home_team","home","home_team_abbr","home_abbr")) or ""
@@ -114,13 +125,16 @@ def normalize_game(game, week, index):
     except: away_score = None
     try: home_score = int(home_score) if home_score is not None else None
     except: home_score = None
-    winner, loser, margin = calculate_result(away, home, away_score, home_score)
+    status = str(pick(game,"status","game_status","game_state") or "scheduled").lower()
+    winner = loser = margin = None
+    if is_game_final(status):
+        winner, loser, margin = calculate_result(away, home, away_score, home_score)
     return {
         "id": str(pick(game,"game_id","id") or f"{SEASON}-{week}-{index}"),
         "season": SEASON,
         "week": week,
         "game_date": str(pick(game,"game_date","gameday","date","scheduled","gametime") or ""),
-        "status": str(pick(game,"status","game_status","game_state") or "scheduled").lower(),
+        "status": status,
         "away_team": away,
         "home_team": home,
         "away_score": away_score,
@@ -179,7 +193,7 @@ def draft_data():
                 selected.append(team)
 
         for g in games:
-            if g.get("margin") is None:
+            if not is_game_final(g) or g.get("margin") is None:
                 continue
 
             week = str(g.get("week") or "")
@@ -208,49 +222,48 @@ def draft_data():
         p["weekly_games"] = weekly_games
 
     players.sort(key=lambda p: (-p["total_points"], p["player_name"].lower()))
-    for rank, p in enumerate(players, 1):
+    rank = 0
+    previous_score = None
+    for index, p in enumerate(players, 1):
+        if previous_score is None or p["total_points"] != previous_score:
+            rank = index
+            previous_score = p["total_points"]
         p["rank"] = rank
 
     return players
 
 
 
-def normalize_player_key(name):
-    return " ".join(str(name or "").lower().split())
+def hash_survivor_pin(pin, salt=None):
+    # New records use Werkzeug's maintained password hash format. The salt
+    # parameter remains accepted for compatibility with older callers.
+    return generate_password_hash(pin)
 
 
-def parse_game_datetime(value):
-    """Best-effort parse of an ISO-like kickoff timestamp."""
-    value = str(value or "").strip()
-    if not value or len(value) <= 10:
-        return None
-    try:
-        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
-        return parsed.astimezone(dt.timezone.utc)
-    except Exception:
-        return None
+def verify_survivor_pin(pin, stored):
+    """Verify both newer Werkzeug hashes and legacy custom salt$digest hashes."""
+    stored = str(stored or "")
+    if not stored:
+        return False
 
+    # Werkzeug hashes include a method prefix such as scrypt: or pbkdf2:.
+    if stored.startswith(("scrypt:", "pbkdf2:")):
+        try:
+            return check_password_hash(stored, pin)
+        except Exception:
+            return False
 
-def game_has_started(game):
-    status = str(game.get("status") or "").lower()
-    if any(word in status for word in ("final", "complete", "closed", "in_progress", "in progress", "live", "halftime")):
-        return True
-    if game.get("winner") is not None:
-        return True
-
-    kickoff = parse_game_datetime(game.get("game_date"))
-    if kickoff is not None and dt.datetime.now(dt.timezone.utc) >= kickoff:
-        return True
+    # Legacy V2.x custom format: <hex salt>$<pbkdf2 digest>.
+    if "$" in stored:
+        try:
+            salt, expected = stored.split("$", 1)
+            actual = hashlib.pbkdf2_hmac(
+                "sha256", pin.encode("utf-8"), salt.encode("utf-8"), 150000
+            ).hex()
+            return hmac.compare_digest(actual, expected)
+        except Exception:
+            return False
     return False
-
-
-def team_game(team, games):
-    for g in games:
-        if team in (g.get("away_team"), g.get("home_team")):
-            return g
-    return None
 
 
 def get_survivor_player(player_key):
@@ -262,143 +275,6 @@ def get_survivor_player(player_key):
             "player_key": f"eq.{player_key}",
             "limit": "1"
         }
-    )
-    return rows[0] if rows else None
-
-
-def ensure_survivor_player(player_name, player_key, pin):
-    player = get_survivor_player(player_key)
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-
-    if player:
-        if not check_password_hash(player.get("pin_hash") or "", pin):
-            raise PermissionError("Incorrect Survivor PIN for this player.")
-        if player.get("player_name") != player_name:
-            sb_upsert(
-                "survivor_players",
-                [{
-                    "season": SEASON,
-                    "player_key": player_key,
-                    "player_name": player_name,
-                    "pin_hash": player["pin_hash"],
-                    "updated_at": now
-                }],
-                "season,player_key"
-            )
-        return
-
-    if len(pin) < 4:
-        raise ValueError("Choose a Survivor PIN with at least 4 characters.")
-
-    sb_upsert(
-        "survivor_players",
-        [{
-            "season": SEASON,
-            "player_key": player_key,
-            "player_name": player_name,
-            "pin_hash": generate_password_hash(pin),
-            "created_at": now,
-            "updated_at": now
-        }],
-        "season,player_key"
-    )
-
-
-def survivor_board_data():
-    picks = sb_get(
-        "survivor_picks",
-        {
-            "select": "*",
-            "season": f"eq.{SEASON}",
-            "order": "player_name.asc,week.asc"
-        }
-    )
-    players = sb_get(
-        "survivor_players",
-        {
-            "select": "player_key,player_name",
-            "season": f"eq.{SEASON}",
-            "order": "player_name.asc"
-        }
-    )
-    games = sb_get("games", {"select": "*", "season": f"eq.{SEASON}"})
-
-    game_by_week = {}
-    for g in games:
-        game_by_week.setdefault(int(g.get("week") or 0), []).append(g)
-
-    picks_by_player = {}
-    for p in picks:
-        picks_by_player.setdefault(p["player_key"], {})[int(p["week"])] = p
-
-    # Include legacy pick-only players if needed.
-    known = {p["player_key"] for p in players}
-    for p in picks:
-        if p["player_key"] not in known:
-            players.append({"player_key": p["player_key"], "player_name": p["player_name"]})
-            known.add(p["player_key"])
-
-    board = []
-    for player in players:
-        key = player["player_key"]
-        weekly = {}
-        alive = True
-        eliminated_week = None
-
-        for week in range(1, 19):
-            pick = picks_by_player.get(key, {}).get(week)
-            if not pick:
-                weekly[str(week)] = {"team": "", "status": "NO PICK"}
-                continue
-
-            outcome = survivor_pick_result((pick.get("team") or "").upper(), game_by_week.get(week, []))
-            status = outcome["status"]
-            weekly[str(week)] = {
-                "team": pick.get("team") or "",
-                "status": status,
-                "score": outcome.get("score")
-            }
-
-            if status == "ELIMINATED" and alive:
-                alive = False
-                eliminated_week = week
-
-        board.append({
-            "player_key": key,
-            "player_name": player.get("player_name") or key,
-            "status": "ALIVE" if alive else "ELIMINATED",
-            "eliminated_week": eliminated_week,
-            "weekly": weekly
-        })
-
-    board.sort(key=lambda x: (x["status"] != "ALIVE", x["player_name"].lower()))
-    return board
-
-
-
-def hash_survivor_pin(pin, salt=None):
-    salt = salt or secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        pin.encode("utf-8"),
-        salt.encode("utf-8"),
-        150000
-    ).hex()
-    return f"{salt}${digest}"
-
-
-def verify_survivor_pin(pin, stored):
-    if not stored or "$" not in stored:
-        return False
-    salt, expected = stored.split("$", 1)
-    actual = hash_survivor_pin(pin, salt).split("$", 1)[1]
-    return hmac.compare_digest(actual, expected)
-
-
-def get_survivor_player(player_key):
-    rows = sb_get(
-        "survivor_players",
-        {"select": "*", "player_key": f"eq.{player_key}", "limit": "1"}
     )
     return rows[0] if rows else None
 
@@ -604,6 +480,17 @@ def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
     player_key = " ".join(player_name.lower().split())
     now = dt.datetime.now(dt.timezone.utc).isoformat()
 
+    # Server-side validation prevents direct API submissions for a bye-week team.
+    game = team_game_for_week(team, week)
+    if not game:
+        try:
+            sync_week(week)
+            game = team_game_for_week(team, week)
+        except Exception:
+            game = None
+    if not game:
+        raise ValueError(f"{TEAMS.get(team, team)} does not have a scheduled game in Week {week}.")
+
     if not admin_override:
         if not pin or not pin.isdigit() or not (4 <= len(pin) <= 12):
             raise ValueError("Enter your 4–12 digit Survivor PIN.")
@@ -614,12 +501,13 @@ def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
                 raise PermissionError("Incorrect Survivor PIN.")
         else:
             sb_upsert("survivor_players", [{
+                "season": SEASON,
                 "player_key": player_key,
                 "player_name": player_name,
                 "pin_hash": hash_survivor_pin(pin),
                 "created_at": now,
                 "updated_at": now
-            }], "player_key")
+            }], "season,player_key")
 
     if not admin_override:
         deadline_passed, deadline = survivor_week_deadline_passed(week)
@@ -689,7 +577,12 @@ def survivor_pick_result(team, games):
             continue
 
         opponent = g.get("home_team") if team == g.get("away_team") else g.get("away_team")
-        decided = g.get("away_score") is not None and g.get("home_score") is not None and g.get("winner") is not None
+        decided = (
+            is_game_final(g) and
+            g.get("away_score") is not None and
+            g.get("home_score") is not None and
+            g.get("winner") is not None
+        )
 
         if not decided:
             return {
@@ -795,7 +688,10 @@ def test_lab():
 def health():
     try:
         sb_get("draft_players", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON}), 200
+        sb_get("survivor_picks", {"select":"id","limit":"1"})
+        sb_get("survivor_players", {"select":"id","limit":"1"})
+        sb_get("survivor_week_settings", {"select":"id","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500
@@ -1028,6 +924,7 @@ def api_survivor_board():
         board = survivor_board_data()
         revealed_weeks = {w: survivor_week_revealed(w)[0] for w in range(1,19)}
         for player in board:
+            visible_elimination_weeks = []
             for week_text, pick in (player.get("weeks") or {}).items():
                 try:
                     week_num = int(week_text)
@@ -1038,6 +935,17 @@ def api_survivor_board():
                     pick["team_name"] = "Pick Submitted"
                     pick["result"] = "SUBMITTED"
                     pick["hidden"] = True
+                elif pick and pick.get("result") == "ELIMINATED":
+                    visible_elimination_weeks.append(week_num)
+
+            if visible_elimination_weeks:
+                player["status"] = "OUT"
+                player["eliminated_week"] = min(visible_elimination_weeks)
+            else:
+                player["status"] = "ALIVE"
+                player["eliminated_week"] = None
+
+        board.sort(key=lambda p: (0 if p.get("status") == "ALIVE" else 1, p.get("player_name", "").lower()))
 
         return jsonify({
             "players": board,
