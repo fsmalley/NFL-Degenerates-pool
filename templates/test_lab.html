@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Commissioner Test Lab</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <b>🏈 NFL DEGENERATES POOL</b>
+  <nav>
+    <a href="/">NFL RESULTS</a>
+    <a href="/draft">DRAFT TEAM POOL</a>
+    <a href="/survivor">SURVIVOR PICKS</a>
+    <a href="/survivor/results">SURVIVOR RESULTS</a>
+    <a href="/survivor/board">SEASON BOARD</a>
+    <a class="active-nav" href="/test-lab">TEST LAB</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero">
+  <div>
+    <div class="eyebrow">COMMISSIONER ONLY</div>
+    <h1>Safe Test Lab</h1>
+    <p>This area uses isolated test tables. It never writes to your real NFL, Draft Pool, or Survivor records.</p>
+  </div>
+</section>
+
+<section class="card test-warning">
+  <h2>How to test</h2>
+  <p>Enter your commissioner password, seed the sample week, verify everything is Pending, then finalize the week and confirm Survivor and Draft scoring change correctly. Reset when finished.</p>
+  <div class="test-controls">
+    <input id="password" type="password" placeholder="Commissioner password">
+    <button class="primary" onclick="seed()">1. Seed Test Week</button>
+    <button onclick="finalizeWeek()">2. Finalize Test Week</button>
+    <button onclick="resetTest()">3. Reset Test Data</button>
+  </div>
+  <div id="msg"></div>
+</section>
+
+<section class="summary-grid">
+  <div class="summary-card"><span>Games</span><strong id="gamesCount">0</strong></div>
+  <div class="summary-card"><span>Survived</span><strong id="survived" class="positive">0</strong></div>
+  <div class="summary-card"><span>Eliminated</span><strong id="eliminated" class="negative">0</strong></div>
+  <div class="summary-card"><span>Pending</span><strong id="pending">0</strong></div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">TEST WEEK 1</div><h2>Game Results</h2></div></div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Matchup</th><th>Score</th><th>Status</th></tr></thead>
+      <tbody id="games"><tr><td colspan="3">No test data yet.</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">SURVIVOR</div><h2>Test Survivor Results</h2></div></div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Player</th><th>Pick</th><th>Result</th><th>Score</th></tr></thead>
+      <tbody id="survivor"><tr><td colspan="4">No test data yet.</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">DRAFT TEAM POOL</div><h2>Test Draft Scoring</h2></div></div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Rank</th><th>Player</th><th>Teams</th><th>Points</th></tr></thead>
+      <tbody id="draft"><tr><td colspan="4">No test data yet.</td></tr></tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<script>
+function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");}
+function password(){return document.getElementById("password").value;}
+function showMsg(text,ok=true){
+  const m=document.getElementById("msg");
+  m.className=ok?"test-msg ok":"test-msg error";
+  m.textContent=text;
+}
+async function post(path){
+  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password()})});
+  const d=await r.json();
+  if(!r.ok) throw new Error(d.error||"Request failed");
+  showMsg(d.message||"Done.");
+  render(d.state||{games:[],survivor:[],draft:[],counts:{games:0,survived:0,eliminated:0,pending:0}});
+}
+async function seed(){try{await post("/api/test-lab/seed")}catch(e){showMsg(e.message,false)}}
+async function finalizeWeek(){try{await post("/api/test-lab/finalize")}catch(e){showMsg(e.message,false)}}
+async function resetTest(){try{await post("/api/test-lab/reset"); await load()}catch(e){showMsg(e.message,false)}}
+async function load(){
+  try{
+    if(!password()){return;}
+    const r=await fetch("/api/test-lab/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password()})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not load test data");
+    render(d);
+  }catch(e){showMsg(e.message,false)}
+}
+function render(d){
+  const c=d.counts||{};
+  document.getElementById("gamesCount").textContent=c.games||0;
+  document.getElementById("survived").textContent=c.survived||0;
+  document.getElementById("eliminated").textContent=c.eliminated||0;
+  document.getElementById("pending").textContent=c.pending||0;
+
+  document.getElementById("games").innerHTML=(d.games||[]).length ? d.games.map(g=>{
+    const score=(g.away_score==null||g.home_score==null)?"—":`${g.away_team} ${g.away_score} - ${g.home_team} ${g.home_score}`;
+    return `<tr><td><strong>${esc(g.away_team)}</strong> @ <strong>${esc(g.home_team)}</strong></td><td>${esc(score)}</td><td>${esc(g.status)}</td></tr>`;
+  }).join("") : '<tr><td colspan="3">No test data yet.</td></tr>';
+
+  document.getElementById("survivor").innerHTML=(d.survivor||[]).length ? d.survivor.map(p=>{
+    const cls=p.status==="SURVIVED"?"positive":p.status==="ELIMINATED"?"negative":"";
+    return `<tr><td>${esc(p.player_name)}</td><td><strong>${esc(p.team)}</strong></td><td class="${cls}"><strong>${esc(p.status)}</strong></td><td>${esc(p.score||"—")}</td></tr>`;
+  }).join("") : '<tr><td colspan="4">No test data yet.</td></tr>';
+
+  document.getElementById("draft").innerHTML=(d.draft||[]).length ? d.draft.map((p,i)=>{
+    const cls=Number(p.total_points)>0?"positive":Number(p.total_points)<0?"negative":"";
+    return `<tr><td>${i+1}</td><td>${esc(p.player_name)}</td><td>${esc(p.team1)} · ${esc(p.team2)}</td><td class="${cls}"><strong>${p.total_points>0?"+":""}${esc(p.total_points)}</strong></td></tr>`;
+  }).join("") : '<tr><td colspan="4">No test data yet.</td></tr>';
+}
+document.getElementById("password").addEventListener("change",load);
+</script>
+</body>
+</html>

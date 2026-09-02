@@ -62,6 +62,17 @@ def sb_upsert(table, rows, on_conflict):
     )
     r.raise_for_status()
 
+def sb_delete(table, params):
+    if not sb_ready():
+        raise RuntimeError("Supabase is not configured.")
+    r = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=sb_headers({"Prefer":"return=minimal"}),
+        params=params,
+        timeout=20
+    )
+    r.raise_for_status()
+
 def calculate_result(away, home, away_score, home_score):
     if away_score is None or home_score is None:
         return None, None, None
@@ -662,6 +673,11 @@ def survivor_results():
 def survivor_board():
     return render_template("survivor_board.html",season=SEASON)
 
+@app.route("/test-lab")
+def test_lab():
+    return render_template("test_lab.html", season=SEASON)
+
+
 @app.route("/health")
 def health():
     try:
@@ -919,6 +935,167 @@ def api_survivor_results(week):
         "sync_error": sync_error
     })
 
+
+
+
+def require_admin(payload=None):
+    payload = payload or {}
+    password = str(payload.get("password", ""))
+    if not ADMIN_PASSWORD:
+        return False, ("ADMIN_PASSWORD is not configured on the server.", 500)
+    if password != ADMIN_PASSWORD:
+        return False, ("Incorrect commissioner password.", 403)
+    return True, None
+
+
+def test_seed_rows():
+    games = [
+        {"id":"T-W1-1","week":1,"away_team":"BUF","home_team":"NYJ","away_score":None,"home_score":None,"status":"scheduled"},
+        {"id":"T-W1-2","week":1,"away_team":"KC","home_team":"LV","away_score":None,"home_score":None,"status":"scheduled"},
+        {"id":"T-W1-3","week":1,"away_team":"PHI","home_team":"DAL","away_score":None,"home_score":None,"status":"scheduled"},
+        {"id":"T-W1-4","week":1,"away_team":"BAL","home_team":"PIT","away_score":None,"home_score":None,"status":"scheduled"},
+    ]
+    picks = [
+        {"player_name":"Test Player 1","player_key":"test player 1","week":1,"team":"BUF"},
+        {"player_name":"Test Player 2","player_key":"test player 2","week":1,"team":"LV"},
+        {"player_name":"Test Player 3","player_key":"test player 3","week":1,"team":"PHI"},
+    ]
+    draft = [
+        {"player_name":"Test Draft 1","team1":"BUF","team2":"KC"},
+        {"player_name":"Test Draft 2","team1":"NYJ","team2":"LV"},
+        {"player_name":"Test Draft 3","team1":"PHI","team2":"BAL"},
+    ]
+    return games, picks, draft
+
+
+def test_compute():
+    games = sb_get("test_games", {"select":"*","order":"id.asc"})
+    survivor_picks = sb_get("test_survivor_picks", {"select":"*","order":"player_name.asc"})
+    draft_players = sb_get("test_draft_players", {"select":"*","order":"player_name.asc"})
+
+    computed_games = []
+    for g in games:
+        a, h = g.get("away_score"), g.get("home_score")
+        winner = loser = margin = None
+        if a is not None and h is not None and str(g.get("status") or "").lower() == "final":
+            a, h = int(a), int(h)
+            if a > h:
+                winner, loser, margin = g["away_team"], g["home_team"], a-h
+            elif h > a:
+                winner, loser, margin = g["home_team"], g["away_team"], h-a
+            else:
+                winner, loser, margin = "TIE", "TIE", 0
+        computed_games.append({**g, "winner":winner, "loser":loser, "margin":margin})
+
+    survivor = []
+    for p in survivor_picks:
+        status, score = "PENDING", ""
+        for g in computed_games:
+            if p["team"] not in (g["away_team"], g["home_team"]):
+                continue
+            if str(g.get("status") or "").lower() == "final":
+                score = f'{g["away_team"]} {g["away_score"]} - {g["home_team"]} {g["home_score"]}'
+                status = "SURVIVED" if g["winner"] == p["team"] else "ELIMINATED"
+            break
+        survivor.append({**p, "status":status, "score":score})
+
+    draft = []
+    for p in draft_players:
+        total = 0
+        for field in ("team1","team2"):
+            team = p.get(field) or ""
+            for g in computed_games:
+                if g.get("margin") is None:
+                    continue
+                if g.get("winner") == team:
+                    total += int(g["margin"])
+                elif g.get("loser") == team:
+                    total -= int(g["margin"])
+        draft.append({**p, "total_points":total})
+    draft.sort(key=lambda x:(-x["total_points"], x["player_name"].lower()))
+
+    return {
+        "games":computed_games,
+        "survivor":survivor,
+        "draft":draft,
+        "counts":{
+            "games":len(computed_games),
+            "survived":sum(1 for x in survivor if x["status"]=="SURVIVED"),
+            "eliminated":sum(1 for x in survivor if x["status"]=="ELIMINATED"),
+            "pending":sum(1 for x in survivor if x["status"]=="PENDING")
+        }
+    }
+
+
+@app.route("/api/test-lab/state", methods=["POST"])
+def api_test_lab_state():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+    try:
+        return jsonify(test_compute())
+    except Exception as e:
+        return jsonify({"error":str(e)}), 500
+
+
+@app.route("/api/test-lab/seed", methods=["POST"])
+def api_test_lab_seed():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+
+    sb_delete("test_games", {"id":"neq.__never__"})
+    sb_delete("test_survivor_picks", {"id":"gte.0"})
+    sb_delete("test_draft_players", {"id":"gte.0"})
+
+    games, picks, draft = test_seed_rows()
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    sb_upsert("test_games", [{**g,"updated_at":now} for g in games], "id")
+    sb_upsert("test_survivor_picks", [{**p,"updated_at":now} for p in picks], "player_key,week")
+    sb_upsert("test_draft_players", [{**p,"updated_at":now} for p in draft], "player_name")
+    return jsonify({"ok":True,"message":"Safe test data seeded.","state":test_compute()})
+
+
+@app.route("/api/test-lab/finalize", methods=["POST"])
+def api_test_lab_finalize():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+
+    scores = {
+        "T-W1-1": (27,17),
+        "T-W1-2": (24,20),
+        "T-W1-3": (21,28),
+        "T-W1-4": (31,14),
+    }
+    current = sb_get("test_games", {"select":"*","order":"id.asc"})
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    rows = []
+    for g in current:
+        if g["id"] in scores:
+            away, home = scores[g["id"]]
+            rows.append({
+                "id":g["id"],"week":g["week"],"away_team":g["away_team"],"home_team":g["home_team"],
+                "away_score":away,"home_score":home,"status":"final","updated_at":now
+            })
+    sb_upsert("test_games", rows, "id")
+    return jsonify({"ok":True,"message":"Test Week 1 finalized.","state":test_compute()})
+
+
+@app.route("/api/test-lab/reset", methods=["POST"])
+def api_test_lab_reset():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+
+    sb_delete("test_games", {"id":"neq.__never__"})
+    sb_delete("test_survivor_picks", {"id":"gte.0"})
+    sb_delete("test_draft_players", {"id":"gte.0"})
+    return jsonify({"ok":True,"message":"All test-only data cleared."})
 
 
 if __name__=="__main__":

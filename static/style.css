@@ -122,3 +122,12 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .survivor-form button.secondary{width:100%}
   .survivor-submit{width:100%}
 }
+
+
+/* V2.1 Safe Test Lab */
+.test-warning{border:2px solid #d5aa3c}
+.test-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.test-controls input{min-width:240px;padding:11px 12px;border:1px solid #cbd3dd;border-radius:8px}
+.test-msg{margin-top:12px;padding:10px 12px;border-radius:8px;font-weight:800}
+.test-msg.ok{background:var(--green-bg);color:var(--green)}
+.test-msg.error{background:var(--red-bg);color:var(--red)}

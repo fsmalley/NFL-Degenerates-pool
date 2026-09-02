@@ -97,3 +97,17 @@ V2.0 is designed as an open player-entry page. A player can correct their own we
 Before deploying V2.0, run `survivor_v2_schema_update.sql` once in the Supabase SQL Editor.
 
 This creates the `survivor_players` table used for hashed player PINs. Existing NFL, Draft Team Pool, and Survivor pick data are not deleted or replaced.
+
+
+## V2.1 Safe Commissioner Test Lab
+
+V2.1 adds `/test-lab`, an isolated commissioner-only test environment.
+
+The Test Lab:
+- Uses separate Supabase tables prefixed with `test_`.
+- Never writes to live `games`, `draft_players`, `survivor_players`, or `survivor_picks`.
+- Seeds a sample Week 1 with four games, three Survivor players, and three Draft Team players.
+- Lets the commissioner finalize sample scores and verify Survivor outcomes and Draft Team point differential scoring.
+- Includes a reset action that deletes only test-table data.
+
+Before deploying V2.1, run `test_mode_schema_update.sql` once in Supabase SQL Editor.
