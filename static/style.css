@@ -256,3 +256,22 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 .admin-inline-notice.error{color:var(--red)}
 .delete-pick-btn{border:1px solid #d8a7a7;background:#fff5f5;color:#9f2424;border-radius:8px;padding:7px 10px;font-weight:900;font-size:11px}
 .delete-pick-btn:hover{background:#fde7e7}
+
+
+/* V2.5 Survivor Visibility & Deadlines */
+.survivor-timing-banner{
+  margin:0 0 18px;
+  padding:13px 15px;
+  border:1px solid #d6dde7;
+  border-radius:10px;
+  background:#f7f9fc;
+  color:#334155;
+  font-size:13px
+}
+.survivor-timing-banner.closed{background:#fff5f5;border-color:#efcaca;color:#8a2525}
+.survivor-settings-panel{margin-top:16px;padding:16px;border:1px solid #d9dee7;border-radius:12px;background:#f8fafc}
+.survivor-setting-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.survivor-setting-grid label{display:flex;flex-direction:column;gap:6px;font-weight:800;font-size:12px}
+.survivor-setting-grid input{padding:10px 11px;border:1px solid #cfd6df;border-radius:8px;font:inherit}
+.survivor-status.submitted,.board-submitted{background:#eef3fb;color:#34517c}
+@media(max-width:700px){.survivor-setting-grid{grid-template-columns:1fr}}

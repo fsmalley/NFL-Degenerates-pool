@@ -63,6 +63,7 @@
 </section>
 
 <div id="status" class="status hidden"></div>
+<div id="survivorTiming" class="survivor-timing-banner">Loading Week {{week}} Survivor deadline and reveal time…</div>
 
 <div class="survivor-layout">
   <section class="card pick-card">
@@ -124,8 +125,9 @@
 <section class="survivor-rules">
   <div class="rule-card"><strong>1</strong><span>One team per week</span></div>
   <div class="rule-card"><strong>2</strong><span>No team can be reused</span></div>
-  <div class="rule-card"><strong>3</strong><span>Pick locks at kickoff</span></div>
+  <div class="rule-card"><strong>3</strong><span>Pick locks at team kickoff</span></div>
   <div class="rule-card"><strong>4</strong><span>Loss or tie = eliminated</span></div>
+  <div class="rule-card"><strong>5</strong><span>All picks due by weekly deadline</span></div>
 </section>
 </main>
 
@@ -138,6 +140,10 @@ function showStatus(message,type="ok"){
   el.textContent=message;
   el.className=`status ${type}`;
   el.classList.remove("hidden");
+}
+
+function escHtml(v){
+  return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
 }
 
 function kickoffText(value){
@@ -157,6 +163,18 @@ async function loadWeekTeams(){
     const d=await r.json();
     weekTeams=d.teams || [];
     renderTeamOptions();
+
+    const timing=document.getElementById("survivorTiming");
+    const deadline=d.settings?.deadline_at ? kickoffText(d.settings.deadline_at) : "—";
+    const reveal=d.settings?.reveal_at ? kickoffText(d.settings.reveal_at) : "—";
+    timing.innerHTML=`<strong>Week ${week}:</strong> Picks close ${deadline} ET. Picks become visible ${reveal} ET.`;
+    timing.className=`survivor-timing-banner ${d.deadline_passed ? "closed" : ""}`;
+
+    const submitBtn=document.querySelector('#pickForm button[type="submit"]');
+    if(submitBtn){
+      submitBtn.disabled=!!d.deadline_passed;
+      submitBtn.textContent=d.deadline_passed ? "Week Closed" : "Lock In Pick";
+    }
   }catch(e){
     select.innerHTML='<option value="">Could not load teams</option>';
   }
@@ -194,9 +212,23 @@ async function loadHistory(){
     return;
   }
 
+  const pin=document.getElementById("pin").value.trim();
+  if(pin.length < 4){
+    usedTeams=new Set();
+    box.innerHTML='<div class="empty-state">Enter your player name and Survivor PIN to view your private pick history.</div>';
+    renderTeamOptions();
+    return;
+  }
+
   try{
-    const r=await fetch("/api/survivor/history?player="+encodeURIComponent(name));
+    const r=await fetch("/api/survivor/history?player="+encodeURIComponent(name)+"&pin="+encodeURIComponent(pin));
     const d=await r.json();
+    if(!r.ok){
+      usedTeams=new Set();
+      renderTeamOptions();
+      box.innerHTML='<div class="empty-state">'+escHtml(d.error || "Could not verify Survivor PIN.")+'</div>';
+      return;
+    }
     const history=d.history || [];
     usedTeams=new Set(d.used_teams || []);
     renderTeamOptions();
@@ -225,7 +257,14 @@ document.getElementById("playerName").addEventListener("input",()=>{
   clearTimeout(historyTimer);
   historyTimer=setTimeout(loadHistory,350);
 });
-document.getElementById("week").addEventListener("change",loadWeekTeams);
+document.getElementById("pin").addEventListener("input",()=>{
+  clearTimeout(historyTimer);
+  historyTimer=setTimeout(loadHistory,350);
+});
+document.getElementById("week").addEventListener("change",()=>{
+  loadWeekTeams();
+  loadHistory();
+});
 
 document.getElementById("pickForm").addEventListener("submit",async(e)=>{
   e.preventDefault();

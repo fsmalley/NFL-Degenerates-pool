@@ -100,6 +100,9 @@ function esc(v){
 }
 function pickCell(p){
   if(!p) return '<span class="board-empty">—</span>';
+  if(p.hidden || p.result==="SUBMITTED"){
+    return '<span class="board-pick board-submitted" title="Team hidden until reveal">✓ Submitted</span>';
+  }
   const cls=p.result==="SURVIVED" ? "board-win" : p.result==="ELIMINATED" ? "board-loss" : "board-pending";
   const icon=p.result==="SURVIVED" ? "✓" : p.result==="ELIMINATED" ? "✕" : "•";
   return `<span class="board-pick ${cls}" title="${esc(p.team_name)}">${esc(p.team)} ${icon}</span>`;

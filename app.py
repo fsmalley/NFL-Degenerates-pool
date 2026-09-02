@@ -5,6 +5,7 @@ import secrets
 import re
 import datetime as dt
 import requests
+from zoneinfo import ZoneInfo
 from flask import Flask, render_template, jsonify, request
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -428,6 +429,110 @@ def team_game_for_week(team, week):
     return None
 
 
+
+EASTERN = ZoneInfo("America/New_York")
+
+def _iso_utc(value):
+    """Normalize a datetime value to UTC ISO text."""
+    if isinstance(value, dt.datetime):
+        d = value
+    else:
+        d = parse_game_datetime(value)
+    if d is None:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    return d.astimezone(dt.timezone.utc).isoformat()
+
+def _default_survivor_sunday(week):
+    """Return the NFL week's Sunday at 1:00 PM America/New_York."""
+    try:
+        games = get_week(week)
+    except Exception:
+        games = []
+
+    parsed = []
+    for g in games:
+        d = parse_game_datetime(g.get("game_date"))
+        if d:
+            parsed.append(d.astimezone(EASTERN))
+
+    if parsed:
+        # Prefer an actual Sunday appearing in the week's schedule.
+        sundays = [d for d in parsed if d.weekday() == 6]
+        if sundays:
+            sunday_date = min(sundays).date()
+        else:
+            anchor = min(parsed).date()
+            days_until_sunday = (6 - anchor.weekday()) % 7
+            sunday_date = anchor + dt.timedelta(days=days_until_sunday)
+    else:
+        # Fallback for a temporarily unavailable schedule. Week 1 uses the
+        # first Sunday on/after September 6; subsequent weeks are 7 days apart.
+        anchor = dt.date(SEASON, 9, 6)
+        sunday_date = anchor + dt.timedelta(days=((6 - anchor.weekday()) % 7) + (week - 1) * 7)
+
+    return dt.datetime.combine(sunday_date, dt.time(13, 0), tzinfo=EASTERN)
+
+def get_survivor_week_settings(week):
+    """Stored weekly settings, with Sunday 1 PM ET defaults."""
+    week = max(1, min(18, int(week)))
+    default_dt = _default_survivor_sunday(week)
+    defaults = {
+        "season": SEASON,
+        "week": week,
+        "deadline_at": default_dt.astimezone(dt.timezone.utc).isoformat(),
+        "reveal_at": default_dt.astimezone(dt.timezone.utc).isoformat(),
+        "timezone": "America/New_York",
+        "is_default": True
+    }
+    try:
+        rows = sb_get(
+            "survivor_week_settings",
+            {
+                "select": "season,week,deadline_at,reveal_at",
+                "season": f"eq.{SEASON}",
+                "week": f"eq.{week}",
+                "limit": "1"
+            }
+        )
+    except Exception:
+        rows = []
+
+    if rows:
+        row = rows[0]
+        defaults["deadline_at"] = _iso_utc(row.get("deadline_at")) or defaults["deadline_at"]
+        defaults["reveal_at"] = _iso_utc(row.get("reveal_at")) or defaults["reveal_at"]
+        defaults["is_default"] = False
+    return defaults
+
+def survivor_week_deadline_passed(week, now=None):
+    settings = get_survivor_week_settings(week)
+    deadline = parse_game_datetime(settings.get("deadline_at"))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return bool(deadline and now >= deadline), deadline
+
+def survivor_week_revealed(week, now=None):
+    settings = get_survivor_week_settings(week)
+    reveal = parse_game_datetime(settings.get("reveal_at"))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return bool(reveal and now >= reveal), reveal
+
+def mask_survivor_result_row(row):
+    return {
+        "id": row.get("id"),
+        "player_name": row.get("player_name"),
+        "team": "",
+        "team_name": "Pick Submitted",
+        "opponent": "",
+        "opponent_name": "",
+        "status": "SUBMITTED",
+        "score": "",
+        "game_date": None,
+        "submitted_at": row.get("submitted_at"),
+        "hidden": True
+    }
+
 def pick_is_locked(team, week):
     game = team_game_for_week(team, week)
     if not game:
@@ -515,6 +620,14 @@ def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
                 "created_at": now,
                 "updated_at": now
             }], "player_key")
+
+    if not admin_override:
+        deadline_passed, deadline = survivor_week_deadline_passed(week)
+        if deadline_passed:
+            deadline_text = deadline.astimezone(EASTERN).strftime("%A, %B %-d at %-I:%M %p ET") if os.name != "nt" else deadline.astimezone(EASTERN).strftime("%A, %B %d at %I:%M %p ET").replace(" 0"," ")
+            raise PermissionError(
+                f"Week {week} Survivor picks are closed. The weekly deadline was {deadline_text}."
+            )
 
     history = survivor_player_history(player_key)
 
@@ -872,18 +985,28 @@ def api_survivor_admin_delete_pick():
 @app.route("/api/survivor/history")
 def api_survivor_history():
     player_name = str(request.args.get("player", "")).strip()
+    pin = str(request.args.get("pin", "")).strip()
     if not player_name:
         return jsonify({"history": [], "used_teams": []})
 
     player_key = " ".join(player_name.lower().split())
+    player = get_survivor_player(player_key)
+
+    # A brand-new player legitimately has no history yet.
+    if not player:
+        return jsonify({"history": [], "used_teams": [], "new_player": True})
+
+    if not pin or not verify_survivor_pin(pin, player.get("pin_hash")):
+        return jsonify({"history": [], "used_teams": [], "error": "Enter the correct Survivor PIN to view this player's picks."}), 403
+
     rows = survivor_player_history(player_key)
     used = []
-
     for row in rows:
         team = (row.get("team") or "").upper()
         row["team_name"] = TEAMS.get(team, team)
         locked, kickoff = pick_is_locked(team, int(row.get("week") or 0))
-        row["locked"] = locked
+        deadline_passed, _ = survivor_week_deadline_passed(int(row.get("week") or 0))
+        row["locked"] = locked or deadline_passed
         row["kickoff"] = kickoff.isoformat() if kickoff else None
         if team:
             used.append(team)
@@ -901,11 +1024,26 @@ def api_survivor_board():
                 sync_week(week)
             except Exception:
                 pass
+
         board = survivor_board_data()
+        revealed_weeks = {w: survivor_week_revealed(w)[0] for w in range(1,19)}
+        for player in board:
+            for week_text, pick in (player.get("weeks") or {}).items():
+                try:
+                    week_num = int(week_text)
+                except Exception:
+                    continue
+                if pick and not revealed_weeks.get(week_num, False):
+                    pick["team"] = ""
+                    pick["team_name"] = "Pick Submitted"
+                    pick["result"] = "SUBMITTED"
+                    pick["hidden"] = True
+
         return jsonify({
             "players": board,
             "alive": sum(1 for p in board if p["status"] == "ALIVE"),
-            "out": sum(1 for p in board if p["status"] == "OUT")
+            "out": sum(1 for p in board if p["status"] == "OUT"),
+            "revealed_weeks": revealed_weeks
         })
     except Exception as e:
         print(f"SURVIVOR BOARD ERROR: {type(e).__name__}: {e}", flush=True)
@@ -922,13 +1060,20 @@ def api_survivor_week(week):
         except Exception:
             pass
         games = get_week(week)
+        settings = get_survivor_week_settings(week)
+        deadline_passed, _ = survivor_week_deadline_passed(week)
+        revealed, _ = survivor_week_revealed(week)
         teams = []
         for g in games:
             kickoff = parse_game_datetime(g.get("game_date"))
-            locked = False
-            if kickoff:
+            locked = deadline_passed
+            if kickoff and not locked:
                 locked = dt.datetime.now(dt.timezone.utc) >= kickoff
-            elif g.get("winner") is not None or g.get("away_score") is not None or g.get("home_score") is not None:
+            elif not kickoff and not locked and (
+                g.get("winner") is not None or
+                g.get("away_score") is not None or
+                g.get("home_score") is not None
+            ):
                 locked = True
 
             away = g.get("away_team")
@@ -953,7 +1098,13 @@ def api_survivor_week(week):
                 })
 
         teams.sort(key=lambda x: x["team_name"])
-        return jsonify({"week": week, "teams": teams})
+        return jsonify({
+            "week": week,
+            "teams": teams,
+            "settings": settings,
+            "deadline_passed": deadline_passed,
+            "revealed": revealed
+        })
     except Exception as e:
         print(f"SURVIVOR WEEK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"week": week, "teams": [], "error": str(e)}), 500
@@ -974,20 +1125,81 @@ def api_survivor_results(week):
         results=[]
         sync_error=sync_error or str(e)
 
+    revealed, reveal_at = survivor_week_revealed(week)
+    admin_header = request.headers.get("X-Admin-Password", "")
+    commissioner_view = bool(ADMIN_PASSWORD and admin_header == ADMIN_PASSWORD)
+
+    public_results = results if (revealed or commissioner_view) else [mask_survivor_result_row(r) for r in results]
     counts = {
-        "total": len(results),
-        "survived": sum(1 for r in results if r["status"] == "SURVIVED"),
-        "eliminated": sum(1 for r in results if r["status"] == "ELIMINATED"),
-        "pending": sum(1 for r in results if r["status"] == "PENDING")
+        "total": len(public_results),
+        "survived": sum(1 for r in public_results if r["status"] == "SURVIVED"),
+        "eliminated": sum(1 for r in public_results if r["status"] == "ELIMINATED"),
+        "pending": sum(1 for r in public_results if r["status"] == "PENDING"),
+        "submitted": sum(1 for r in public_results if r["status"] == "SUBMITTED")
     }
 
     return jsonify({
         "week": week,
-        "results": results,
+        "results": public_results,
         "counts": counts,
-        "sync_error": sync_error
+        "sync_error": sync_error,
+        "revealed": revealed,
+        "commissioner_view": commissioner_view,
+        "settings": get_survivor_week_settings(week),
+        "reveal_at": reveal_at.isoformat() if reveal_at else None
     })
 
+
+@app.route("/api/survivor/settings/<int:week>", methods=["GET","POST"])
+def api_survivor_settings(week):
+    week=max(1,min(18,week))
+
+    if request.method == "GET":
+        settings = get_survivor_week_settings(week)
+        deadline_passed, _ = survivor_week_deadline_passed(week)
+        revealed, _ = survivor_week_revealed(week)
+        return jsonify({
+            "ok": True,
+            "settings": settings,
+            "deadline_passed": deadline_passed,
+            "revealed": revealed
+        })
+
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Incorrect commissioner password."}), 403
+
+    deadline_text = str(payload.get("deadline_at", "")).strip()
+    reveal_text = str(payload.get("reveal_at", "")).strip()
+
+    def parse_eastern_setting(value):
+        try:
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except Exception:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=EASTERN)
+        return parsed
+
+    deadline = parse_eastern_setting(deadline_text)
+    reveal = parse_eastern_setting(reveal_text)
+    if not deadline or not reveal:
+        return jsonify({"ok": False, "error": "A valid deadline and reveal time are required."}), 400
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    row = {
+        "season": SEASON,
+        "week": week,
+        "deadline_at": deadline.astimezone(dt.timezone.utc).isoformat(),
+        "reveal_at": reveal.astimezone(dt.timezone.utc).isoformat(),
+        "updated_at": now
+    }
+    try:
+        sb_upsert("survivor_week_settings", [row], "season,week")
+        return jsonify({"ok": True, "message": f"Week {week} Survivor times saved.", "settings": get_survivor_week_settings(week)})
+    except Exception as e:
+        print(f"SURVIVOR SETTINGS ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok": False, "error": "Could not save Survivor week settings."}), 500
 
 
 

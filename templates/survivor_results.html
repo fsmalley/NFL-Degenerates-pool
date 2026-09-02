@@ -86,11 +86,28 @@
   </div>
   <div class="survivor-admin-controls">
     <input id="commissionerPassword" type="password" placeholder="Commissioner password">
-    <button class="secondary" id="enableDeleteBtn" type="button" onclick="enableDeleteMode()">Enable Delete Controls</button>
-    <button class="ghost hidden" id="disableDeleteBtn" type="button" onclick="disableDeleteMode()">Exit Delete Mode</button>
+    <button class="secondary" id="enableDeleteBtn" type="button" onclick="enableDeleteMode()">Enable Commissioner Controls</button>
+    <button class="ghost hidden" id="disableDeleteBtn" type="button" onclick="disableDeleteMode()">Exit Commissioner Mode</button>
+  </div>
+
+  <div id="settingsPanel" class="survivor-settings-panel hidden">
+    <div class="survivor-setting-grid">
+      <label>
+        <span>Weekly Pick Deadline — Eastern Time</span>
+        <input id="deadlineAt" type="datetime-local">
+      </label>
+      <label>
+        <span>Pick Reveal Time — Eastern Time</span>
+        <input id="revealAt" type="datetime-local">
+      </label>
+    </div>
+    <button class="primary" type="button" onclick="saveWeekSettings()">Save Week {{week}} Times</button>
+    <small>Defaults are Sunday at 1:00 PM Eastern. These settings can be changed independently for each week.</small>
   </div>
   <div id="adminNotice" class="admin-inline-notice"></div>
 </section>
+
+<div id="visibilityNotice" class="survivor-timing-banner">Loading Survivor visibility status…</div>
 
 <section class="card">
   <div class="section-head">
@@ -131,14 +148,66 @@ function esc(v){
 }
 
 function statusBadge(status){
-  const cls=status==="SURVIVED" ? "survived" : status==="ELIMINATED" ? "eliminated" : "pending";
-  const label=status==="SURVIVED" ? "✓ Survived" : status==="ELIMINATED" ? "✕ Eliminated" : "• Pending";
+  const cls=status==="SURVIVED" ? "survived" : status==="ELIMINATED" ? "eliminated" : status==="SUBMITTED" ? "submitted" : "pending";
+  const label=status==="SURVIVED" ? "✓ Survived" : status==="ELIMINATED" ? "✕ Eliminated" : status==="SUBMITTED" ? "✓ Pick Submitted" : "• Pending";
   return `<span class="survivor-status ${cls}">${label}</span>`;
 }
 
 
 let deleteMode=false;
 let commissionerPassword="";
+
+function formatEastern(value){
+  if(!value) return "—";
+  const d=new Date(value);
+  return d.toLocaleString("en-US",{
+    timeZone:"America/New_York",
+    weekday:"short",month:"short",day:"numeric",
+    hour:"numeric",minute:"2-digit",timeZoneName:"short"
+  });
+}
+
+function easternInputValue(value){
+  if(!value) return "";
+  const d=new Date(value);
+  const parts=new Intl.DateTimeFormat("en-CA",{
+    timeZone:"America/New_York",
+    year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).formatToParts(d);
+  const get=t=>parts.find(p=>p.type===t)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+async function loadWeekSettings(){
+  const r=await fetch(`/api/survivor/settings/${week}`);
+  const d=await r.json();
+  if(!r.ok) throw new Error(d.error||"Could not load Survivor settings.");
+  document.getElementById("deadlineAt").value=easternInputValue(d.settings.deadline_at);
+  document.getElementById("revealAt").value=easternInputValue(d.settings.reveal_at);
+}
+
+async function saveWeekSettings(){
+  if(!deleteMode || !commissionerPassword) return;
+  const deadline_at=document.getElementById("deadlineAt").value;
+  const reveal_at=document.getElementById("revealAt").value;
+  const notice=document.getElementById("adminNotice");
+  try{
+    const r=await fetch(`/api/survivor/settings/${week}`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password:commissionerPassword,deadline_at,reveal_at})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not save settings.");
+    notice.textContent=d.message;
+    notice.className="admin-inline-notice ok";
+    await loadResults();
+  }catch(e){
+    notice.textContent=e.message;
+    notice.className="admin-inline-notice error";
+  }
+}
 
 async function enableDeleteMode(){
   const password=document.getElementById("commissionerPassword").value;
@@ -162,7 +231,9 @@ async function enableDeleteMode(){
     document.getElementById("enableDeleteBtn").classList.add("hidden");
     document.getElementById("disableDeleteBtn").classList.remove("hidden");
     document.getElementById("commissionerPassword").disabled=true;
-    notice.textContent="Delete controls enabled. Deletions require confirmation.";
+    document.getElementById("settingsPanel").classList.remove("hidden");
+    await loadWeekSettings();
+    notice.textContent="Commissioner controls enabled. Delete controls and weekly timing settings are available.";
     notice.className="admin-inline-notice ok";
     await loadResults();
   }catch(e){
@@ -178,6 +249,7 @@ function disableDeleteMode(){
   document.getElementById("enableDeleteBtn").classList.remove("hidden");
   document.getElementById("disableDeleteBtn").classList.add("hidden");
   document.getElementById("commissionerPassword").disabled=false;
+  document.getElementById("settingsPanel").classList.add("hidden");
   document.getElementById("commissionerPassword").value="";
   document.getElementById("adminNotice").textContent="";
   loadResults();
@@ -212,8 +284,16 @@ async function deletePick(playerName,team){
 
 async function loadResults(){
   try{
-    const r=await fetch("/api/survivor/results/"+week);
+    const fetchOpts=deleteMode && commissionerPassword ? {headers:{"X-Admin-Password":commissionerPassword}} : {};
+    const r=await fetch("/api/survivor/results/"+week,fetchOpts);
     const d=await r.json();
+
+    const visibility=document.getElementById("visibilityNotice");
+    const revealText=d.settings?.reveal_at ? formatEastern(d.settings.reveal_at) : "—";
+    const deadlineText=d.settings?.deadline_at ? formatEastern(d.settings.deadline_at) : "—";
+    visibility.innerHTML=d.revealed || d.commissioner_view
+      ? `<strong>Week ${week} picks are visible.</strong> Weekly deadline: ${deadlineText}.`
+      : `<strong>Week ${week} picks are hidden until ${revealText}.</strong> Submitted players are shown, but their teams remain private. Weekly deadline: ${deadlineText}.`;
     if(d.sync_error){
       document.getElementById("notice").textContent="Live NFL refresh issue; stored results are shown. "+d.sync_error;
     }else{
@@ -237,9 +317,9 @@ async function loadResults(){
     document.getElementById("results").innerHTML=rows.map(r=>`
       <tr>
         <td><strong>${esc(r.player_name)}</strong></td>
-        <td><span class="team-pill">${esc(r.team)}</span> ${esc(r.team_name)}</td>
-        <td>${r.opponent ? `<span class="team-pill">${esc(r.opponent)}</span> ${esc(r.opponent_name)}` : "—"}</td>
-        <td>${esc(r.score || "—")}</td>
+        <td>${r.hidden ? '<span class="survivor-status submitted">✓ Pick Submitted</span>' : `<span class="team-pill">${esc(r.team)}</span> ${esc(r.team_name)}`}</td>
+        <td>${r.hidden ? "Hidden until reveal" : (r.opponent ? `<span class="team-pill">${esc(r.opponent)}</span> ${esc(r.opponent_name)}` : "—")}</td>
+        <td>${r.hidden ? "—" : esc(r.score || "—")}</td>
         <td>${statusBadge(r.status)}</td>
         <td class="delete-column ${deleteMode?"":"hidden"}">
           <button type="button" class="delete-pick-btn" onclick='deletePick(${JSON.stringify(r.player_name)},${JSON.stringify(r.team)})'>Delete Pick</button>

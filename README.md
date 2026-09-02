@@ -173,3 +173,22 @@ Commissioners can now delete an incorrect Survivor pick from the **Survivor Pool
 4. Click **Delete Pick** beside the player and confirm.
 
 The deletion removes only that week's `survivor_picks` row. It does not remove the player's Survivor PIN/account, so the player can submit a replacement pick. No Supabase schema changes are required.
+
+
+## V2.5 Survivor Pick Visibility & Deadlines
+
+V2.5 adds weekly Survivor privacy and deadline controls.
+
+- Default weekly pick deadline: **Sunday at 1:00 PM Eastern**
+- Default weekly reveal time: **Sunday at 1:00 PM Eastern**
+- Commissioner can change deadline and reveal independently for each week
+- Before reveal, public pages show only **Pick Submitted** and do not expose the selected team
+- Player history is now protected by the player's Survivor PIN
+- Each selected team still locks at its own kickoff
+- All remaining teams lock when the weekly deadline arrives
+- Commissioner override remains available after player deadlines
+- Commissioner mode on Weekly Results can still view and delete hidden picks
+
+### Required Supabase update
+
+Run `survivor_v2_5_visibility_schema_update.sql` once in the Supabase SQL Editor before deploying V2.5.
