@@ -244,3 +244,37 @@ V2.8 is a quality-focused release. Confidence Pool remains Coming Soon.
 - Improved mobile commissioner controls and touch-friendly table scrolling.
 - Quality checks are read-only and do not alter live pool records.
 - No Supabase schema migration is required for V2.8.
+
+
+## V2.9 Confidence Pool
+
+V2.9 activates the Confidence Pool while leaving the stable Draft and Survivor pools intact.
+
+### Player entry
+- Players choose a winner for every NFL game scheduled in the selected week.
+- Each game receives one confidence value.
+- Every value from **1 through the number of games that week** must be used exactly once.
+- Example: a 16-game week uses 16, 15, 14 ... 1.
+- A perfect 16-game week is worth 136 confidence points.
+- Players use a private 4–12 digit Confidence PIN to retrieve/update their own entry.
+- The full weekly entry locks when the first scheduled game begins.
+- Other players' selections remain hidden until the weekly entry lock.
+
+### Tiebreaker
+- The player predicts the combined score of the final scheduled game of the week.
+- Weekly standings rank by confidence points first.
+- If confidence points are tied and the final game is complete, the closest tiebreaker prediction ranks higher.
+
+### Results and standings
+- `/confidence` — Make Weekly Picks
+- `/confidence/results` — Weekly Results
+- `/confidence/standings` — Season Standings
+- Correct picks earn the assigned confidence value.
+- Incorrect picks and tied NFL games earn 0 points.
+- Season standings total all earned confidence points from completed games.
+
+### Database update required
+Run `confidence_v2_9_schema_update.sql` in the Supabase SQL Editor before deploying V2.9.
+
+### V2.9 Test Lab
+The existing commissioner quality check now also verifies Confidence Pool rule basics and the three new Confidence Supabase tables.

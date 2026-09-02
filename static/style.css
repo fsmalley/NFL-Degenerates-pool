@@ -324,3 +324,49 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .test-controls input,.test-controls button{width:100%;min-width:0}
   .survivor-admin-controls input,.survivor-admin-controls button{width:100%;min-width:0}
 }
+
+
+/* V2.9 Confidence Pool */
+.confidence-entry-head{display:grid;grid-template-columns:130px minmax(180px,1fr) minmax(160px,220px) auto;gap:12px;align-items:end}
+.confidence-entry-head label,.confidence-results-toolbar label,.tiebreaker-input{display:flex;flex-direction:column;gap:6px;font-weight:800;font-size:12px}
+.confidence-entry-head input,.confidence-entry-head select,.confidence-results-toolbar select,.tiebreaker-input input{
+  padding:10px 11px;border:1px solid #cfd6df;border-radius:8px;background:#fff;font:inherit
+}
+.confidence-entry-card .survivor-timing-banner{margin-top:15px;margin-bottom:0}
+.confidence-value-tracker{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 16px}
+.confidence-chip{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;border-radius:9px;background:#eef2f6;border:1px solid #d7dee8;font-weight:900}
+.confidence-chip.used{background:#172236;color:#fff;border-color:#172236}
+.confidence-pick-table{min-width:850px}
+.confidence-pick-table td:first-child strong,.confidence-pick-table td:first-child small{display:block}
+.confidence-pick-table td:first-child small{margin-top:4px;color:var(--muted);white-space:nowrap}
+.confidence-team-choices{display:grid;grid-template-columns:minmax(230px,1fr) 28px minmax(230px,1fr);gap:8px;align-items:center}
+.confidence-team-choices label{display:flex;align-items:center;gap:7px;padding:10px;border:1px solid #dce2e9;border-radius:9px;cursor:pointer;background:#fff}
+.confidence-team-choices label:has(input:checked){border-color:#b89036;background:#fffaf0;box-shadow:inset 0 0 0 1px #b89036}
+.at-symbol{text-align:center;color:var(--muted);font-weight:900}
+.confidence-value{min-width:78px;padding:10px;border:1px solid #cfd6df;border-radius:8px;background:#fff;font-weight:900}
+.confidence-last-game td{background:#fffaf0}
+.tiebreaker-game{padding:12px 14px;background:#f7f9fc;border:1px solid #dce2e9;border-radius:9px;font-weight:800;margin-bottom:14px}
+.tiebreaker-input{max-width:240px}
+.confidence-save{margin-top:15px}
+.confidence-results-toolbar{display:flex;gap:18px;align-items:end;flex-wrap:wrap}
+.confidence-results-toolbar .survivor-timing-banner{margin:0;flex:1}
+.confidence-results-table{min-width:800px}
+.confidence-result-row{cursor:default}
+.confidence-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.confidence-detail-card{display:flex;flex-direction:column;gap:5px;padding:12px;border:1px solid #dfe4eb;border-radius:10px;background:#fafbfd}
+.confidence-detail-card>span{font-size:11px;color:var(--muted);font-weight:900;text-transform:uppercase}
+.confidence-detail-card small{color:var(--muted)}
+.confidence-detail-card b{font-size:12px}
+.confidence-standings-table{min-width:1550px}
+.confidence-standings-table th:first-child,.confidence-standings-table td:first-child{position:sticky;left:0;background:#fff;z-index:2}
+.confidence-standings-table th:nth-child(2),.confidence-standings-table td:nth-child(2){position:sticky;left:65px;background:#fff;z-index:2;min-width:150px}
+.confidence-standings-table th:first-child,.confidence-standings-table th:nth-child(2){background:#f5f7fa;z-index:4}
+@media(max-width:900px){
+  .confidence-entry-head{grid-template-columns:1fr 1fr}
+  .confidence-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .confidence-entry-head{grid-template-columns:1fr}
+  .confidence-entry-head button{width:100%}
+  .confidence-detail-grid{grid-template-columns:1fr}
+}

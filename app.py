@@ -741,6 +741,470 @@ def survivor_player_history(player_key):
     )
     return rows
 
+
+# -----------------------------
+# Confidence Pool (V2.9)
+# -----------------------------
+
+def confidence_player_key(name):
+    return " ".join(str(name or "").lower().split())
+
+
+def get_confidence_player(player_key):
+    rows = sb_get(
+        "confidence_players",
+        {
+            "select":"*",
+            "season":f"eq.{SEASON}",
+            "player_key":f"eq.{player_key}",
+            "limit":"1"
+        }
+    )
+    return rows[0] if rows else None
+
+
+def confidence_week_games(week, refresh=False):
+    week = max(1, min(18, int(week)))
+    if refresh:
+        try:
+            sync_week(week)
+        except Exception:
+            pass
+    games = get_week(week)
+    games.sort(key=lambda g: (
+        parse_game_datetime(g.get("game_date")) or dt.datetime.max.replace(tzinfo=dt.timezone.utc),
+        str(g.get("id") or "")
+    ))
+    return games
+
+
+def confidence_week_lock(week, games=None, now=None):
+    games = games if games is not None else confidence_week_games(week)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    kickoffs = [parse_game_datetime(g.get("game_date")) for g in games]
+    kickoffs = [x for x in kickoffs if x is not None]
+    if kickoffs:
+        first = min(kickoffs)
+        return now >= first, first
+
+    # Fallback if source kickoff text cannot be parsed.
+    started = any(
+        is_game_final(g) or
+        str(g.get("status") or "").lower() in ("in_progress","live","halftime") or
+        g.get("away_score") is not None or
+        g.get("home_score") is not None
+        for g in games
+    )
+    return started, None
+
+
+def confidence_last_game(games):
+    if not games:
+        return None
+    parsed = [(parse_game_datetime(g.get("game_date")), g) for g in games]
+    valid = [(d,g) for d,g in parsed if d is not None]
+    if valid:
+        return max(valid, key=lambda x: (x[0], str(x[1].get("id") or "")))[1]
+    return games[-1]
+
+
+def confidence_entry(player_key, week):
+    entries = sb_get(
+        "confidence_entries",
+        {
+            "select":"*",
+            "season":f"eq.{SEASON}",
+            "week":f"eq.{week}",
+            "player_key":f"eq.{player_key}",
+            "limit":"1"
+        }
+    )
+    entry = entries[0] if entries else None
+    picks = sb_get(
+        "confidence_picks",
+        {
+            "select":"*",
+            "season":f"eq.{SEASON}",
+            "week":f"eq.{week}",
+            "player_key":f"eq.{player_key}",
+            "order":"confidence_value.desc"
+        }
+    )
+    return entry, picks
+
+
+def confidence_game_result(game, picked_team):
+    if not is_game_final(game):
+        return "PENDING", 0
+    winner = game.get("winner")
+    if winner == picked_team:
+        return "WIN", 1
+    if winner == "TIE":
+        return "TIE", 0
+    return "LOSS", 0
+
+
+def confidence_week_rows(week, refresh=False):
+    games = confidence_week_games(week, refresh=refresh)
+    game_map = {str(g.get("id")):g for g in games}
+    last_game = confidence_last_game(games)
+    last_game_id = str(last_game.get("id")) if last_game else None
+    actual_tiebreaker = None
+    if last_game and is_game_final(last_game):
+        a, h = last_game.get("away_score"), last_game.get("home_score")
+        if a is not None and h is not None:
+            actual_tiebreaker = int(a) + int(h)
+
+    entries = sb_get(
+        "confidence_entries",
+        {
+            "select":"*",
+            "season":f"eq.{SEASON}",
+            "week":f"eq.{week}",
+            "order":"player_name.asc"
+        }
+    )
+    picks = sb_get(
+        "confidence_picks",
+        {
+            "select":"*",
+            "season":f"eq.{SEASON}",
+            "week":f"eq.{week}"
+        }
+    )
+    by_player = {}
+    for pick in picks:
+        by_player.setdefault(pick.get("player_key"), []).append(pick)
+
+    rows = []
+    for entry in entries:
+        player_picks = by_player.get(entry.get("player_key"), [])
+        points = 0
+        decided = 0
+        details = []
+        for pick in player_picks:
+            game = game_map.get(str(pick.get("game_id")))
+            status = "PENDING"
+            earned = 0
+            if game:
+                status, won = confidence_game_result(game, str(pick.get("team") or "").upper())
+                if status != "PENDING":
+                    decided += 1
+                if won:
+                    earned = int(pick.get("confidence_value") or 0)
+                    points += earned
+            details.append({
+                **pick,
+                "status":status,
+                "earned":earned,
+                "game":game
+            })
+
+        prediction = entry.get("tiebreaker_total")
+        diff = None
+        if actual_tiebreaker is not None and prediction is not None:
+            diff = abs(int(prediction) - actual_tiebreaker)
+
+        rows.append({
+            **entry,
+            "points":points,
+            "decided_games":decided,
+            "game_count":len(games),
+            "tiebreaker_diff":diff,
+            "actual_tiebreaker":actual_tiebreaker,
+            "last_game_id":last_game_id,
+            "picks":details
+        })
+
+    # Weekly ranking: points descending; when final-game total exists, closest tiebreaker wins.
+    rows.sort(key=lambda r: (
+        -int(r.get("points") or 0),
+        10**9 if r.get("tiebreaker_diff") is None else int(r["tiebreaker_diff"]),
+        str(r.get("player_name") or "").lower()
+    ))
+    rank = 0
+    prior_key = None
+    for i, row in enumerate(rows, 1):
+        rank_key = (
+            int(row.get("points") or 0),
+            row.get("tiebreaker_diff") if actual_tiebreaker is not None else None
+        )
+        if prior_key is None or rank_key != prior_key:
+            rank = i
+            prior_key = rank_key
+        row["rank"] = rank
+    return rows, games, actual_tiebreaker, last_game
+
+
+def confidence_season_standings():
+    entries = sb_get(
+        "confidence_entries",
+        {"select":"*","season":f"eq.{SEASON}"}
+    )
+    if not entries:
+        return []
+
+    # Use stored game data only; week result pages refresh individual weeks.
+    games = sb_get("games", {"select":"*","season":f"eq.{SEASON}"})
+    game_map = {str(g.get("id")):g for g in games}
+    picks = sb_get(
+        "confidence_picks",
+        {"select":"*","season":f"eq.{SEASON}"}
+    )
+
+    players = {}
+    for entry in entries:
+        key = entry.get("player_key")
+        row = players.setdefault(key, {
+            "player_key":key,
+            "player_name":entry.get("player_name") or key,
+            "total_points":0,
+            "weeks_played":0,
+            "weekly_points":{str(w):None for w in range(1,19)}
+        })
+        row["player_name"] = entry.get("player_name") or row["player_name"]
+        row["weeks_played"] += 1
+
+    points_by_player_week = {}
+    for pick in picks:
+        game = game_map.get(str(pick.get("game_id")))
+        if not game or not is_game_final(game):
+            continue
+        status, won = confidence_game_result(game, str(pick.get("team") or "").upper())
+        if won:
+            k=(pick.get("player_key"), int(pick.get("week") or 0))
+            points_by_player_week[k]=points_by_player_week.get(k,0)+int(pick.get("confidence_value") or 0)
+
+    entry_keys={(e.get("player_key"),int(e.get("week") or 0)) for e in entries}
+    for (player_key, week) in entry_keys:
+        if player_key not in players or week not in range(1,19):
+            continue
+        value=points_by_player_week.get((player_key,week),0)
+        players[player_key]["weekly_points"][str(week)] = value
+        players[player_key]["total_points"] += value
+
+    rows=list(players.values())
+    rows.sort(key=lambda p:(-p["total_points"],p["player_name"].lower()))
+    rank=0
+    prior=None
+    for i,row in enumerate(rows,1):
+        if prior is None or row["total_points"] != prior:
+            rank=i
+            prior=row["total_points"]
+        row["rank"]=rank
+    return rows
+
+
+@app.route("/confidence")
+def confidence():
+    week=max(1,min(18,request.args.get("week",1,type=int)))
+    return render_template("confidence.html",season=SEASON,week=week)
+
+
+@app.route("/confidence/results")
+def confidence_results():
+    week=max(1,min(18,request.args.get("week",1,type=int)))
+    return render_template("confidence_results.html",season=SEASON,week=week)
+
+
+@app.route("/confidence/standings")
+def confidence_standings():
+    return render_template("confidence_standings.html",season=SEASON)
+
+
+@app.route("/api/confidence/week/<int:week>")
+def api_confidence_week(week):
+    week=max(1,min(18,week))
+    sync_error=None
+    try:
+        sync_week(week)
+    except Exception as e:
+        sync_error=str(e)
+    try:
+        games=confidence_week_games(week)
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e),"games":[]}),500
+
+    locked, lock_time=confidence_week_lock(week,games)
+    last=confidence_last_game(games)
+    return jsonify({
+        "ok":True,
+        "week":week,
+        "game_count":len(games),
+        "confidence_values":list(range(len(games),0,-1)),
+        "locked":locked,
+        "lock_time":lock_time.isoformat() if lock_time else None,
+        "last_game_id":str(last.get("id")) if last else None,
+        "games":games,
+        "sync_error":sync_error
+    })
+
+
+@app.route("/api/confidence/entry", methods=["GET","POST"])
+def api_confidence_entry():
+    if request.method == "GET":
+        player_name=str(request.args.get("player") or "").strip()
+        pin=str(request.args.get("pin") or "").strip()
+        week=max(1,min(18,request.args.get("week",1,type=int)))
+        if not player_name or not pin:
+            return jsonify({"ok":False,"error":"Enter your player name and Confidence PIN."}),400
+        key=confidence_player_key(player_name)
+        player=get_confidence_player(key)
+        if not player or not verify_survivor_pin(pin,player.get("pin_hash")):
+            return jsonify({"ok":False,"error":"Incorrect Confidence player name or PIN."}),403
+        entry,picks=confidence_entry(key,week)
+        return jsonify({"ok":True,"entry":entry,"picks":picks})
+
+    payload=request.get_json(silent=True) or {}
+    player_name=str(payload.get("player_name") or "").strip()
+    pin=str(payload.get("pin") or "").strip()
+    try:
+        week=int(payload.get("week") or 0)
+    except Exception:
+        week=0
+    picks=payload.get("picks") or []
+    tiebreaker=payload.get("tiebreaker_total")
+
+    if not player_name or len(player_name)>80:
+        return jsonify({"ok":False,"error":"Enter a valid player name."}),400
+    if not pin.isdigit() or not (4 <= len(pin) <= 12):
+        return jsonify({"ok":False,"error":"Enter a 4–12 digit Confidence PIN."}),400
+    if week not in range(1,19):
+        return jsonify({"ok":False,"error":"Choose a valid NFL week."}),400
+    try:
+        tiebreaker=int(tiebreaker)
+    except Exception:
+        return jsonify({"ok":False,"error":"Enter the total score for the final game tiebreaker."}),400
+    if tiebreaker < 0 or tiebreaker > 200:
+        return jsonify({"ok":False,"error":"Tiebreaker total must be between 0 and 200."}),400
+
+    games=confidence_week_games(week,refresh=True)
+    if not games:
+        return jsonify({"ok":False,"error":f"No NFL games are loaded for Week {week}."}),400
+    locked,lock_time=confidence_week_lock(week,games)
+    if locked:
+        return jsonify({"ok":False,"error":f"Week {week} Confidence entries are locked because the first game has started."}),403
+
+    expected_ids={str(g.get("id")) for g in games}
+    if len(picks) != len(games):
+        return jsonify({"ok":False,"error":f"Make a selection for all {len(games)} games."}),400
+
+    seen_games=set()
+    values=[]
+    rows=[]
+    for pick in picks:
+        game_id=str(pick.get("game_id") or "")
+        team=str(pick.get("team") or "").upper()
+        try:
+            value=int(pick.get("confidence_value"))
+        except Exception:
+            value=0
+        if game_id not in expected_ids or game_id in seen_games:
+            return jsonify({"ok":False,"error":"The submitted game list is invalid."}),400
+        game=next((g for g in games if str(g.get("id"))==game_id),None)
+        if not game or team not in (g.get("away_team"),g.get("home_team")):
+            return jsonify({"ok":False,"error":"Choose one of the two teams playing in every game."}),400
+        seen_games.add(game_id)
+        values.append(value)
+        rows.append((game_id,team,value))
+
+    required=set(range(1,len(games)+1))
+    if set(values) != required or len(values) != len(set(values)):
+        return jsonify({
+            "ok":False,
+            "error":f"Use every confidence value from 1 through {len(games)} exactly once."
+        }),400
+
+    key=confidence_player_key(player_name)
+    now=dt.datetime.now(dt.timezone.utc).isoformat()
+    player=get_confidence_player(key)
+    if player:
+        if not verify_survivor_pin(pin,player.get("pin_hash")):
+            return jsonify({"ok":False,"error":"Incorrect Confidence PIN."}),403
+    else:
+        sb_upsert("confidence_players",[{
+            "season":SEASON,
+            "player_key":key,
+            "player_name":player_name,
+            "pin_hash":hash_survivor_pin(pin),
+            "created_at":now,
+            "updated_at":now
+        }],"season,player_key")
+
+    sb_upsert("confidence_entries",[{
+        "season":SEASON,
+        "week":week,
+        "player_key":key,
+        "player_name":player_name,
+        "tiebreaker_total":tiebreaker,
+        "submitted_at":now,
+        "updated_at":now
+    }],"season,week,player_key")
+
+    pick_rows=[{
+        "season":SEASON,
+        "week":week,
+        "player_key":key,
+        "game_id":game_id,
+        "team":team,
+        "confidence_value":value,
+        "updated_at":now
+    } for game_id,team,value in rows]
+    sb_upsert("confidence_picks",pick_rows,"season,week,player_key,game_id")
+
+    return jsonify({
+        "ok":True,
+        "message":f"Week {week} Confidence entry saved for {player_name}.",
+        "game_count":len(games)
+    })
+
+
+@app.route("/api/confidence/results/<int:week>")
+def api_confidence_results(week):
+    week=max(1,min(18,week))
+    try:
+        rows,games,actual,last=confidence_week_rows(week,refresh=True)
+        locked,lock_time=confidence_week_lock(week,games)
+        public_rows=rows
+        if not locked:
+            public_rows=[]
+            for row in rows:
+                public_rows.append({
+                    "player_name":row.get("player_name"),
+                    "points":0,
+                    "decided_games":0,
+                    "game_count":row.get("game_count"),
+                    "rank":None,
+                    "tiebreaker_total":None,
+                    "tiebreaker_diff":None,
+                    "picks":[],
+                    "hidden":True
+                })
+        return jsonify({
+            "ok":True,
+            "week":week,
+            "results":public_rows,
+            "game_count":len(games),
+            "actual_tiebreaker":actual if locked else None,
+            "last_game":last,
+            "locked":locked,
+            "lock_time":lock_time.isoformat() if lock_time else None
+        })
+    except Exception as e:
+        print(f"CONFIDENCE RESULTS ERROR: {type(e).__name__}: {e}",flush=True)
+        return jsonify({"ok":False,"error":str(e),"results":[]}),500
+
+
+@app.route("/api/confidence/standings")
+def api_confidence_standings():
+    try:
+        rows=confidence_season_standings()
+        return jsonify({"ok":True,"season":SEASON,"players":rows})
+    except Exception as e:
+        print(f"CONFIDENCE STANDINGS ERROR: {type(e).__name__}: {e}",flush=True)
+        return jsonify({"ok":False,"error":str(e),"players":[]}),500
+
+
 @app.route("/")
 def index():
     week=max(1,min(18,request.args.get("week",1,type=int)))
@@ -778,7 +1242,10 @@ def health():
         sb_get("survivor_week_settings", {"select":"id","limit":"1"})
         sb_get("draft_salary_settings", {"select":"id","limit":"1"})
         sb_get("draft_team_values", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary"]}), 200
+        sb_get("confidence_players", {"select":"id","limit":"1"})
+        sb_get("confidence_entries", {"select":"id","limit":"1"})
+        sb_get("confidence_picks", {"select":"id","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500
@@ -1604,6 +2071,18 @@ def run_v28_quality_checks():
         "Duplicate NFL team selections are detectable before save."
     )
 
+    confidence_values = list(range(16, 0, -1))
+    add(
+        "Confidence values cover 1–16 exactly once",
+        set(confidence_values) == set(range(1,17)) and len(confidence_values) == len(set(confidence_values)),
+        "A 16-game week supplies confidence values 16 through 1 with no duplicates."
+    )
+    add(
+        "Confidence maximum points calculate correctly",
+        sum(confidence_values) == 136,
+        f"A perfect 16-game week is worth {sum(confidence_values)} points."
+    )
+
     return {
         "passed": all(c["passed"] for c in checks),
         "checks": checks,
@@ -1626,6 +2105,9 @@ def run_system_diagnostics():
         ("Survivor week settings table", "survivor_week_settings"),
         ("Draft salary settings table", "draft_salary_settings"),
         ("Draft team values table", "draft_team_values"),
+        ("Confidence players table", "confidence_players"),
+        ("Confidence entries table", "confidence_entries"),
+        ("Confidence picks table", "confidence_picks"),
         ("NFL games table", "games"),
     ]
     for label, table in table_checks:

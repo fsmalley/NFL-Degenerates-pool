@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confidence Pool Results</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">DRAFT POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">DRAFT POOL</div><a href="/draft">Season Standings</a><a href="/draft#leaderboard">Leaderboard</a><a href="/draft#player-breakdown">Player / Team Breakdown</a></div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">SURVIVOR POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">SURVIVOR POOL</div><a href="/survivor">Make a Pick</a><a href="/survivor/results">Weekly Results</a><a href="/survivor/board">Season Board</a></div>
+    </div>
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button">CONFIDENCE POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">CONFIDENCE POOL</div><a href="/confidence">Make Weekly Picks</a><a href="/confidence/results">Weekly Results</a><a href="/confidence/standings">Season Standings</a></div>
+    </div>
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+  </nav>
+</header>
+<main>
+<section class="hero"><div><div class="eyebrow">{{season}} CONFIDENCE POOL</div><h1>Confidence Pool — Weekly Results</h1><p>Correct picks earn their assigned confidence value. Weekly ties are broken by the closest final-game total score prediction.</p></div>
+<div class="hero-actions"><a class="button-link primary" href="/confidence?week={{week}}">Make Picks</a><a class="button-link secondary" href="/confidence/standings">Season Standings</a></div></section>
+<section class="card"><div class="confidence-results-toolbar"><label><span>Week</span><select id="week">{% for w in range(1,19) %}<option value="{{w}}" {% if w==week %}selected{% endif %}>Week {{w}}</option>{% endfor %}</select></label><div id="revealNote" class="survivor-timing-banner">Loading…</div></div></section>
+<section class="summary-grid"><div class="summary-card"><span>Entries</span><strong id="entries">—</strong></div><div class="summary-card"><span>Games</span><strong id="games">—</strong></div><div class="summary-card"><span>Leader</span><strong id="leader">—</strong></div><div class="summary-card"><span>Final-Game Actual</span><strong id="actual">—</strong></div></section>
+<section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY LEADERBOARD</div><h2 id="title">Week {{week}} Results</h2><p>Click an entry after picks are revealed to see every selection and confidence result.</p></div></div>
+<div class="tablewrap"><table class="confidence-results-table"><thead><tr><th>Rank</th><th>Player</th><th>Points</th><th>Tiebreaker Pick</th><th>Difference</th><th>Games Decided</th></tr></thead><tbody id="body"><tr><td colspan="6">Loading…</td></tr></tbody></table></div></section>
+<section id="detailPanel" class="card hidden"><div class="section-head"><div><div class="eyebrow dark-eyebrow">ENTRY BREAKDOWN</div><h2 id="detailTitle">Player</h2></div><button id="closeDetail" class="ghost">Close</button></div><div id="detailGrid" class="confidence-detail-grid"></div></section>
+</main><script>
+const $=id=>document.getElementById(id);let rows=[],week={{week}},locked=false;
+const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+function fmt(v){if(!v)return "";const d=new Date(v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
+function render(){
+  $("title").textContent=`Week ${week} Results`;$("entries").textContent=rows.length;$("leader").textContent=locked&&rows[0]?`${rows[0].player_name} (${rows[0].points})`:"—";
+  if(!rows.length){$("body").innerHTML='<tr><td colspan="6">No Confidence entries submitted for this week.</td></tr>';return;}
+  $("body").innerHTML=rows.map((r,i)=>r.hidden?`<tr><td>—</td><td><strong>${esc(r.player_name)}</strong></td><td colspan="4"><span class="survivor-status submitted">✓ Entry Submitted — Picks Hidden</span></td></tr>`:
+  `<tr class="confidence-result-row" data-index="${i}"><td><span class="rank-badge">${r.rank}</span></td><td><button class="player-link">${esc(r.player_name)}</button></td><td><strong>${r.points}</strong></td><td>${r.tiebreaker_total??"—"}</td><td>${r.tiebreaker_diff??"—"}</td><td>${r.decided_games} / ${r.game_count}</td></tr>`).join("");
+  if(locked)document.querySelectorAll(".confidence-result-row").forEach(tr=>tr.querySelector(".player-link").onclick=()=>showDetail(rows[Number(tr.dataset.index)]));
+}
+function showDetail(r){
+  $("detailTitle").textContent=r.player_name;
+  $("detailGrid").innerHTML=(r.picks||[]).sort((a,b)=>Number(b.confidence_value)-Number(a.confidence_value)).map(p=>{const g=p.game||{};const cls=p.status==="WIN"?"positive":p.status==="LOSS"?"negative":"";return `<div class="confidence-detail-card"><span>Confidence ${p.confidence_value}</span><strong>${esc(p.team)}</strong><small>${esc(g.away_team||"")} @ ${esc(g.home_team||"")}</small><b class="${cls}">${p.status} · +${p.earned||0}</b></div>`;}).join("");
+  $("detailPanel").classList.remove("hidden");$("detailPanel").scrollIntoView({behavior:"smooth"});
+}
+async function load(){
+  week=Number($("week").value);const r=await fetch("/api/confidence/results/"+week);const d=await r.json();
+  if(!r.ok){$("body").innerHTML=`<tr><td colspan="6">${esc(d.error||"Could not load results.")}</td></tr>`;return;}
+  rows=d.results||[];locked=!!d.locked;$("games").textContent=d.game_count||0;$("actual").textContent=d.actual_tiebreaker??"—";
+  $("revealNote").innerHTML=locked?`<strong>Picks are revealed.</strong> Week ${week} locked when its first game began.`:`<strong>Picks remain private.</strong> They will appear after the first game begins${d.lock_time?" at "+fmt(d.lock_time):""}.`;render();
+}
+$("week").onchange=load;$("closeDetail").onclick=()=>$("detailPanel").classList.add("hidden");load();
+</script></body></html>

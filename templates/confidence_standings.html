@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confidence Pool Standings</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">DRAFT POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">DRAFT POOL</div><a href="/draft">Season Standings</a><a href="/draft#leaderboard">Leaderboard</a><a href="/draft#player-breakdown">Player / Team Breakdown</a></div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">SURVIVOR POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">SURVIVOR POOL</div><a href="/survivor">Make a Pick</a><a href="/survivor/results">Weekly Results</a><a href="/survivor/board">Season Board</a></div>
+    </div>
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button">CONFIDENCE POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">CONFIDENCE POOL</div><a href="/confidence">Make Weekly Picks</a><a href="/confidence/results">Weekly Results</a><a href="/confidence/standings">Season Standings</a></div>
+    </div>
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+  </nav>
+</header>
+<main><section class="hero"><div><div class="eyebrow">{{season}} CONFIDENCE POOL</div><h1>Confidence Pool — Season Standings</h1><p>Season totals are the sum of confidence points earned from correct picks across all completed games.</p></div>
+<div class="hero-actions"><a class="button-link primary" href="/confidence">Make Weekly Picks</a><a class="button-link secondary" href="/confidence/results">Weekly Results</a></div></section>
+<section class="summary-grid"><div class="summary-card"><span>Players</span><strong id="players">—</strong></div><div class="summary-card"><span>Leader</span><strong id="leader">—</strong></div><div class="summary-card"><span>Leading Points</span><strong id="points">—</strong></div><div class="summary-card"><span>Season</span><strong>{{season}}</strong></div></section>
+<section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">FULL SEASON</div><h2>Confidence Pool Leaderboard</h2><p>Scroll horizontally to see each player's weekly confidence points.</p></div></div>
+<div class="tablewrap"><table class="confidence-standings-table"><thead><tr><th>Rank</th><th>Player</th><th>Total</th><th>Weeks Entered</th>{% for w in range(1,19) %}<th>W{{w}}</th>{% endfor %}</tr></thead><tbody id="body"><tr><td colspan="22">Loading standings…</td></tr></tbody></table></div></section></main>
+<script>
+const $=id=>document.getElementById(id);const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+fetch("/api/confidence/standings").then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not load standings");return d;}).then(d=>{
+ const rows=d.players||[];$("players").textContent=rows.length;$("leader").textContent=rows[0]?.player_name||"—";$("points").textContent=rows[0]?.total_points??"—";
+ $("body").innerHTML=rows.length?rows.map(p=>`<tr><td><span class="rank-badge">${p.rank}</span></td><td><strong>${esc(p.player_name)}</strong></td><td><strong>${p.total_points}</strong></td><td>${p.weeks_played}</td>${Array.from({length:18},(_,i)=>`<td>${p.weekly_points?.[String(i+1)]??"—"}</td>`).join("")}</tr>`).join(""):'<tr><td colspan="22">No Confidence Pool entries yet.</td></tr>';
+}).catch(e=>{$("body").innerHTML=`<tr><td colspan="22">${esc(e.message)}</td></tr>`;});
+</script></body></html>

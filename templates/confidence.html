@@ -1,0 +1,113 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confidence Pool {{season}}</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct" href="/">NFL RESULTS</a>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">DRAFT POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">DRAFT POOL</div><a href="/draft">Season Standings</a><a href="/draft#leaderboard">Leaderboard</a><a href="/draft#player-breakdown">Player / Team Breakdown</a></div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-group-button" type="button">SURVIVOR POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">SURVIVOR POOL</div><a href="/survivor">Make a Pick</a><a href="/survivor/results">Weekly Results</a><a href="/survivor/board">Season Board</a></div>
+    </div>
+    <div class="nav-group nav-group-active">
+      <button class="nav-group-button" type="button">CONFIDENCE POOL <span class="nav-caret">▾</span></button>
+      <div class="nav-dropdown"><div class="nav-dropdown-heading">CONFIDENCE POOL</div><a href="/confidence">Make Weekly Picks</a><a href="/confidence/results">Weekly Results</a><a href="/confidence/standings">Season Standings</a></div>
+    </div>
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+  </nav>
+</header>
+<main>
+<section class="hero"><div><div class="eyebrow">{{season}} CONFIDENCE POOL</div><h1>Confidence Pool — Weekly Picks</h1>
+<p>Pick the winner of every game, then assign each confidence value exactly once. Your highest number should be your most confident pick.</p></div>
+<div class="hero-actions"><a class="button-link secondary" href="/confidence/results?week={{week}}">Weekly Results</a><a class="button-link secondary" href="/confidence/standings">Season Standings</a></div></section>
+<div id="status" class="status hidden"></div>
+<section class="card confidence-entry-card"><div class="confidence-entry-head">
+<label><span>Week</span><select id="week">{% for w in range(1,19) %}<option value="{{w}}" {% if w==week %}selected{% endif %}>Week {{w}}</option>{% endfor %}</select></label>
+<label><span>Player Name</span><input id="playerName" maxlength="80" placeholder="Your pool name"></label>
+<label><span>Confidence PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="12" placeholder="4–12 digits"></label>
+<button id="loadEntry" class="secondary" type="button">Load My Entry</button></div>
+<div id="lockBanner" class="survivor-timing-banner">Loading Week {{week}} schedule…</div></section>
+<section class="summary-grid confidence-summary">
+<div class="summary-card"><span>Games This Week</span><strong id="gameCount">—</strong></div>
+<div class="summary-card"><span>Maximum Points</span><strong id="maxPoints">—</strong></div>
+<div class="summary-card"><span>Picks Completed</span><strong id="pickCount">0</strong></div>
+<div class="summary-card"><span>Confidence Values Used</span><strong id="valueCount">0</strong></div></section>
+<section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY ENTRY</div><h2 id="weekTitle">Week {{week}} Picks</h2>
+<p>All selections and confidence values lock when the first game of the week begins.</p></div></div>
+<div id="confidenceTracker" class="confidence-value-tracker"></div>
+<div class="tablewrap"><table class="confidence-pick-table"><thead><tr><th>Game</th><th>Pick a Winner</th><th>Confidence</th></tr></thead>
+<tbody id="gamesBody"><tr><td colspan="3">Loading schedule…</td></tr></tbody></table></div></section>
+<section class="card confidence-tiebreaker-card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY TIEBREAKER</div><h2>Final Game Total Score</h2>
+<p>Predict the combined score of both teams in the final scheduled game of the week.</p></div></div>
+<div id="lastGameText" class="tiebreaker-game">Loading final game…</div>
+<label class="tiebreaker-input"><span>Total Combined Score</span><input id="tiebreaker" type="number" min="0" max="200" inputmode="numeric" placeholder="Example: 47"></label>
+<button id="saveEntry" class="primary confidence-save" type="button">Submit Week {{week}} Entry</button></section>
+</main>
+<script>
+let week={{week}},games=[],locked=false,lastGameId=null,existingPicks={};
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+function fmtKickoff(value){if(!value)return "";const d=new Date(value);if(Number.isNaN(d.getTime()))return value;return new Intl.DateTimeFormat("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
+function showStatus(msg,type="ok"){$("status").textContent=msg;$("status").className="status "+type;$("status").classList.remove("hidden");}
+function maxPoints(n){return n*(n+1)/2;}
+function selectedValues(){return [...document.querySelectorAll(".confidence-value")].map(x=>Number(x.value||0)).filter(Boolean);}
+function updateTracker(){
+  const used=selectedValues();
+  $("pickCount").textContent=[...document.querySelectorAll(".team-choice:checked")].length;
+  $("valueCount").textContent=used.length;
+  $("confidenceTracker").innerHTML=Array.from({length:games.length},(_,i)=>games.length-i).map(v=>`<span class="confidence-chip ${used.includes(v)?"used":""}">${v}</span>`).join("");
+  document.querySelectorAll(".confidence-value").forEach(sel=>{const own=Number(sel.value||0);[...sel.options].forEach(opt=>{const v=Number(opt.value||0);opt.disabled=v>0&&v!==own&&used.includes(v);});});
+}
+function renderGames(){
+  $("gameCount").textContent=games.length;$("maxPoints").textContent=maxPoints(games.length);$("weekTitle").textContent=`Week ${week} Picks`;$("saveEntry").textContent=`Submit Week ${week} Entry`;
+  if(!games.length){$("gamesBody").innerHTML='<tr><td colspan="3">No games are currently loaded for this week.</td></tr>';return;}
+  $("gamesBody").innerHTML=games.map((g,i)=>{
+    const saved=existingPicks[String(g.id)]||{};const values=Array.from({length:games.length},(_,j)=>games.length-j);const isLast=String(g.id)===String(lastGameId);
+    return `<tr class="${isLast?"confidence-last-game":""}">
+      <td><strong>Game ${i+1}${isLast?" · TIEBREAKER GAME":""}</strong><small>${esc(fmtKickoff(g.game_date))}</small></td>
+      <td><div class="confidence-team-choices">
+      <label><input class="team-choice" type="radio" name="game-${esc(g.id)}" value="${esc(g.away_team)}" ${saved.team===g.away_team?"checked":""} ${locked?"disabled":""}> <span class="team-pill">${esc(g.away_team)}</span> ${esc(g.away_name||g.away_team)}</label>
+      <span class="at-symbol">@</span>
+      <label><input class="team-choice" type="radio" name="game-${esc(g.id)}" value="${esc(g.home_team)}" ${saved.team===g.home_team?"checked":""} ${locked?"disabled":""}> <span class="team-pill">${esc(g.home_team)}</span> ${esc(g.home_name||g.home_team)}</label>
+      </div></td>
+      <td><select class="confidence-value" data-game="${esc(g.id)}" ${locked?"disabled":""}><option value="">—</option>${values.map(v=>`<option value="${v}" ${Number(saved.confidence_value)===v?"selected":""}>${v}</option>`).join("")}</select></td></tr>`;
+  }).join("");
+  document.querySelectorAll(".team-choice,.confidence-value").forEach(el=>el.addEventListener("change",updateTracker));updateTracker();
+}
+async function loadWeek(){
+  week=Number($("week").value);existingPicks={};
+  const r=await fetch("/api/confidence/week/"+week);const d=await r.json();
+  if(!r.ok){showStatus(d.error||"Could not load the weekly schedule.","error");return;}
+  games=d.games||[];locked=!!d.locked;lastGameId=d.last_game_id;
+  const lockText=d.lock_time?fmtKickoff(d.lock_time):"the first game";
+  $("lockBanner").textContent=locked?`Week ${week} is locked. The first game has started.`:`Week ${week} entries lock at ${lockText}.`;
+  $("lockBanner").classList.toggle("closed",locked);$("saveEntry").disabled=locked;$("tiebreaker").disabled=locked;
+  const lg=games.find(g=>String(g.id)===String(lastGameId));
+  $("lastGameText").textContent=lg?`${lg.away_team} ${lg.away_name||""} @ ${lg.home_team} ${lg.home_name||""} — ${fmtKickoff(lg.game_date)}`:"Final game not available yet.";
+  renderGames();
+}
+async function loadEntry(){
+  const name=$("playerName").value.trim(),pin=$("pin").value.trim();
+  if(!name||!pin){showStatus("Enter your player name and Confidence PIN first.","error");return;}
+  const r=await fetch(`/api/confidence/entry?player=${encodeURIComponent(name)}&pin=${encodeURIComponent(pin)}&week=${week}`);const d=await r.json();
+  if(!r.ok){showStatus(d.error||"Could not load entry.","error");return;}
+  existingPicks={};(d.picks||[]).forEach(p=>existingPicks[String(p.game_id)]=p);$("tiebreaker").value=d.entry?.tiebreaker_total??"";renderGames();
+  showStatus(d.entry?`Week ${week} entry loaded.`:`No saved Week ${week} entry yet.`,"ok");
+}
+async function saveEntry(){
+  if(locked){showStatus(`Week ${week} is locked.`,"error");return;}
+  const player_name=$("playerName").value.trim(),pin=$("pin").value.trim();
+  const picks=games.map(g=>({game_id:String(g.id),team:document.querySelector(`input[name="game-${CSS.escape(String(g.id))}"]:checked`)?.value||"",confidence_value:Number(document.querySelector(`select[data-game="${CSS.escape(String(g.id))}"]`)?.value||0)}));
+  if(picks.some(p=>!p.team)){showStatus(`Select a winner for all ${games.length} games.`,"error");return;}
+  const vals=picks.map(p=>p.confidence_value);if(vals.some(v=>!v)||new Set(vals).size!==games.length){showStatus(`Use every confidence value from 1 through ${games.length} exactly once.`,"error");return;}
+  if($("tiebreaker").value===""){showStatus("Enter your final-game total score tiebreaker.","error");return;}
+  const tiebreaker_total=Number($("tiebreaker").value);$("saveEntry").disabled=true;$("saveEntry").textContent="Saving…";
+  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_name,pin,week,picks,tiebreaker_total})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Entry could not be saved.");showStatus("✓ "+d.message,"ok");await loadEntry();}
+  catch(e){showStatus(e.message,"error");}finally{if(!locked){$("saveEntry").disabled=false;$("saveEntry").textContent=`Submit Week ${week} Entry`;}}
+}
+$("week").addEventListener("change",loadWeek);$("loadEntry").addEventListener("click",loadEntry);$("saveEntry").addEventListener("click",saveEntry);loadWeek();
+</script></body></html>
