@@ -161,3 +161,15 @@ The top navigation is now grouped by pool so visitors can immediately see which 
   - Test Lab
 
 Page headings now repeat the pool name, such as `Draft Pool — Season Standings` and `Survivor Pool — Weekly Results`. This release changes navigation and labels only; scoring and database behavior are unchanged.
+
+
+## V2.4 Survivor Pick Delete
+
+Commissioners can now delete an incorrect Survivor pick from the **Survivor Pool → Weekly Results** page.
+
+1. Select the desired week.
+2. Enter the commissioner password under **Manage Survivor Picks**.
+3. Enable Delete Controls.
+4. Click **Delete Pick** beside the player and confirm.
+
+The deletion removes only that week's `survivor_picks` row. It does not remove the player's Survivor PIN/account, so the player can submit a replacement pick. No Supabase schema changes are required.

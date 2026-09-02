@@ -816,6 +816,59 @@ def api_survivor_admin_pick():
         return jsonify({"ok": False, "error": "Commissioner override could not be saved."}), 500
 
 
+
+@app.route("/api/survivor/admin/delete-pick", methods=["POST"])
+def api_survivor_admin_delete_pick():
+    payload = request.get_json(silent=True) or {}
+
+    if not ADMIN_PASSWORD or payload.get("password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Incorrect commissioner password."}), 403
+
+    player_name = str(payload.get("player_name", "")).strip()
+    try:
+        week = int(payload.get("week", 0))
+    except Exception:
+        week = 0
+
+    if not player_name:
+        return jsonify({"ok": False, "error": "Player name is required."}), 400
+    if week < 1 or week > 18:
+        return jsonify({"ok": False, "error": "Choose a valid NFL week."}), 400
+
+    player_key = " ".join(player_name.lower().split())
+
+    try:
+        matches = sb_get("survivor_picks", {
+            "select": "id,player_name,player_key,week,team",
+            "season": f"eq.{SEASON}",
+            "week": f"eq.{week}",
+            "player_key": f"eq.{player_key}"
+        })
+        if not matches:
+            return jsonify({
+                "ok": False,
+                "error": f"No Survivor pick was found for {player_name}, Week {week}."
+            }), 404
+
+        deleted_team = matches[0].get("team") or ""
+        sb_delete("survivor_picks", {
+            "season": f"eq.{SEASON}",
+            "week": f"eq.{week}",
+            "player_key": f"eq.{player_key}"
+        })
+
+        return jsonify({
+            "ok": True,
+            "message": f"Deleted {player_name}'s Week {week} Survivor pick ({deleted_team}).",
+            "player_name": player_name,
+            "week": week,
+            "team": deleted_team
+        })
+    except Exception as e:
+        print(f"SURVIVOR DELETE ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok": False, "error": "Could not delete the Survivor pick."}), 500
+
+
 @app.route("/api/survivor/history")
 def api_survivor_history():
     player_name = str(request.args.get("player", "")).strip()

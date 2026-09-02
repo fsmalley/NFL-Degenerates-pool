@@ -75,6 +75,23 @@
   <div class="summary-card"><span>Pending</span><strong id="pending">—</strong></div>
 </section>
 
+
+<section class="card survivor-admin-card">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">COMMISSIONER CONTROLS</div>
+      <h2>Manage Survivor Picks</h2>
+      <p>Enter the commissioner password to show delete controls. Deleting a pick removes only that player's pick for this week; it does not delete the player's PIN/account.</p>
+    </div>
+  </div>
+  <div class="survivor-admin-controls">
+    <input id="commissionerPassword" type="password" placeholder="Commissioner password">
+    <button class="secondary" id="enableDeleteBtn" type="button" onclick="enableDeleteMode()">Enable Delete Controls</button>
+    <button class="ghost hidden" id="disableDeleteBtn" type="button" onclick="disableDeleteMode()">Exit Delete Mode</button>
+  </div>
+  <div id="adminNotice" class="admin-inline-notice"></div>
+</section>
+
 <section class="card">
   <div class="section-head">
     <div>
@@ -93,10 +110,11 @@
           <th>Opponent</th>
           <th>Game Score</th>
           <th>Result</th>
+          <th class="delete-column hidden">Commissioner</th>
         </tr>
       </thead>
       <tbody id="results">
-        <tr><td colspan="5">Loading…</td></tr>
+        <tr><td colspan="6">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -118,11 +136,88 @@ function statusBadge(status){
   return `<span class="survivor-status ${cls}">${label}</span>`;
 }
 
-fetch("/api/survivor/results/"+week)
-  .then(r=>r.json())
-  .then(d=>{
+
+let deleteMode=false;
+let commissionerPassword="";
+
+async function enableDeleteMode(){
+  const password=document.getElementById("commissionerPassword").value;
+  const notice=document.getElementById("adminNotice");
+  if(!password){
+    notice.textContent="Enter the commissioner password.";
+    notice.className="admin-inline-notice error";
+    return;
+  }
+  try{
+    const r=await fetch("/api/admin/check",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Incorrect commissioner password.");
+    commissionerPassword=password;
+    deleteMode=true;
+    document.querySelectorAll(".delete-column").forEach(el=>el.classList.remove("hidden"));
+    document.getElementById("enableDeleteBtn").classList.add("hidden");
+    document.getElementById("disableDeleteBtn").classList.remove("hidden");
+    document.getElementById("commissionerPassword").disabled=true;
+    notice.textContent="Delete controls enabled. Deletions require confirmation.";
+    notice.className="admin-inline-notice ok";
+    await loadResults();
+  }catch(e){
+    notice.textContent=e.message;
+    notice.className="admin-inline-notice error";
+  }
+}
+
+function disableDeleteMode(){
+  deleteMode=false;
+  commissionerPassword="";
+  document.querySelectorAll(".delete-column").forEach(el=>el.classList.add("hidden"));
+  document.getElementById("enableDeleteBtn").classList.remove("hidden");
+  document.getElementById("disableDeleteBtn").classList.add("hidden");
+  document.getElementById("commissionerPassword").disabled=false;
+  document.getElementById("commissionerPassword").value="";
+  document.getElementById("adminNotice").textContent="";
+  loadResults();
+}
+
+async function deletePick(playerName,team){
+  if(!deleteMode || !commissionerPassword) return;
+  const ok=confirm(`Delete ${playerName}'s Week ${week} Survivor pick (${team})?\n\nThe player may submit a replacement pick afterward.`);
+  if(!ok) return;
+
+  const notice=document.getElementById("adminNotice");
+  try{
+    const r=await fetch("/api/survivor/admin/delete-pick",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        password:commissionerPassword,
+        player_name:playerName,
+        week:week
+      })
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not delete pick.");
+    notice.textContent=d.message;
+    notice.className="admin-inline-notice ok";
+    await loadResults();
+  }catch(e){
+    notice.textContent=e.message;
+    notice.className="admin-inline-notice error";
+  }
+}
+
+async function loadResults(){
+  try{
+    const r=await fetch("/api/survivor/results/"+week);
+    const d=await r.json();
     if(d.sync_error){
       document.getElementById("notice").textContent="Live NFL refresh issue; stored results are shown. "+d.sync_error;
+    }else{
+      document.getElementById("notice").textContent="";
     }
 
     document.getElementById("total").textContent=d.counts.total;
@@ -135,7 +230,7 @@ fetch("/api/survivor/results/"+week)
       rows.length ? `${rows.length} pick${rows.length===1?"":"s"} submitted for Week ${week}.` : `No Week ${week} picks have been submitted yet.`;
 
     if(!rows.length){
-      document.getElementById("results").innerHTML='<tr><td colspan="5"><div class="empty-state">No Survivor picks submitted for this week.</div></td></tr>';
+      document.getElementById("results").innerHTML='<tr><td colspan="6"><div class="empty-state">No Survivor picks submitted for this week.</div></td></tr>';
       return;
     }
 
@@ -146,12 +241,17 @@ fetch("/api/survivor/results/"+week)
         <td>${r.opponent ? `<span class="team-pill">${esc(r.opponent)}</span> ${esc(r.opponent_name)}` : "—"}</td>
         <td>${esc(r.score || "—")}</td>
         <td>${statusBadge(r.status)}</td>
+        <td class="delete-column ${deleteMode?"":"hidden"}">
+          <button type="button" class="delete-pick-btn" onclick='deletePick(${JSON.stringify(r.player_name)},${JSON.stringify(r.team)})'>Delete Pick</button>
+        </td>
       </tr>
     `).join("");
-  })
-  .catch(()=>{
-    document.getElementById("results").innerHTML='<tr><td colspan="5">Could not load Survivor results.</td></tr>';
-  });
+  }catch(e){
+    document.getElementById("results").innerHTML='<tr><td colspan="6">Could not load Survivor results.</td></tr>';
+  }
+}
+
+loadResults();
 </script>
 </body>
 </html>

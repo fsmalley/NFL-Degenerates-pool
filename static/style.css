@@ -245,3 +245,14 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .nav-group-button,.nav-direct{display:block;width:100%;text-align:left}
   .nav-dropdown{position:absolute;top:100%;left:0;right:auto}
 }
+
+
+/* V2.4 Commissioner Survivor Pick Delete */
+.survivor-admin-card{border-left:4px solid #d9a441}
+.survivor-admin-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.survivor-admin-controls input{min-width:240px;padding:11px 12px;border:1px solid #cfd6df;border-radius:9px;font:inherit}
+.admin-inline-notice{margin-top:10px;font-size:13px;font-weight:800}
+.admin-inline-notice.ok{color:var(--green)}
+.admin-inline-notice.error{color:var(--red)}
+.delete-pick-btn{border:1px solid #d8a7a7;background:#fff5f5;color:#9f2424;border-radius:8px;padding:7px 10px;font-weight:900;font-size:11px}
+.delete-pick-btn:hover{background:#fde7e7}
