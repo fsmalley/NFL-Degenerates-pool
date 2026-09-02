@@ -22,57 +22,84 @@
 <main>
 <section class="hero">
   <div>
-    <div class="eyebrow">COMMISSIONER ONLY</div>
-    <h1>Safe Test Lab</h1>
-    <p>This area uses isolated test tables. It never writes to your real NFL, Draft Pool, or Survivor records.</p>
+    <div class="eyebrow">COMMISSIONER ONLY · ISOLATED DATA</div>
+    <h1>Full Draft Pool Test Lab</h1>
+    <p>Stress-test a 25-player Draft Team Pool with 8 teams per player across an 18-week synthetic season. Nothing here writes to the live pool tables.</p>
   </div>
 </section>
 
 <section class="card test-warning">
-  <h2>How to test</h2>
-  <p>Enter your commissioner password, seed the sample week, verify everything is Pending, then finalize the week and confirm Survivor and Draft scoring change correctly. Reset when finished.</p>
+  <h2>Full Draft Test Controls</h2>
+  <p>Start by seeding the full test pool. Then finalize one week, five weeks, ten weeks, or the entire season and verify that rankings and weekly scoring update.</p>
   <div class="test-controls">
     <input id="password" type="password" placeholder="Commissioner password">
-    <button class="primary" onclick="seed()">1. Seed Test Week</button>
-    <button onclick="finalizeWeek()">2. Finalize Test Week</button>
-    <button onclick="resetTest()">3. Reset Test Data</button>
+    <button class="primary" onclick="seed()">Seed Full Draft Pool</button>
+    <button onclick="finalizeWeek1()">Simulate Week 1</button>
+    <button onclick="finalizeThrough(5)">Simulate Weeks 1–5</button>
+    <button onclick="finalizeThrough(10)">Simulate Weeks 1–10</button>
+    <button onclick="finalizeSeason()">Simulate Full Season</button>
+    <button onclick="resetTest()">Reset Test Data</button>
   </div>
   <div id="msg"></div>
 </section>
 
 <section class="summary-grid">
-  <div class="summary-card"><span>Games</span><strong id="gamesCount">0</strong></div>
-  <div class="summary-card"><span>Survived</span><strong id="survived" class="positive">0</strong></div>
-  <div class="summary-card"><span>Eliminated</span><strong id="eliminated" class="negative">0</strong></div>
-  <div class="summary-card"><span>Pending</span><strong id="pending">0</strong></div>
+  <div class="summary-card"><span>Draft Players</span><strong id="draftPlayers">0</strong></div>
+  <div class="summary-card"><span>Games Loaded</span><strong id="gamesCount">0</strong></div>
+  <div class="summary-card"><span>Weeks Final</span><strong id="weeksFinal">0</strong></div>
+  <div class="summary-card"><span>Current Leader</span><strong id="leader">—</strong></div>
 </section>
 
 <section class="card">
-  <div class="section-head"><div><div class="eyebrow dark-eyebrow">TEST WEEK 1</div><h2>Game Results</h2></div></div>
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">25 PLAYERS · 8 TEAMS EACH</div>
+      <h2>Draft Test Leaderboard</h2>
+      <p>Scores use the same point-differential method as the live Draft Team Pool. Rankings below are based on the running total through the selected week.</p>
+      <div class="asof-control">
+        <label for="asOfWeek"><strong>Show standings as of:</strong></label>
+        <select id="asOfWeek" onchange="render(lastState)">
+          {% for w in range(1,19) %}<option value="{{w}}">Week {{w}}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
   <div class="tablewrap">
-    <table>
-      <thead><tr><th>Matchup</th><th>Score</th><th>Status</th></tr></thead>
-      <tbody id="games"><tr><td colspan="3">No test data yet.</td></tr></tbody>
+    <table class="draft-test-table">
+      <thead>
+        <tr>
+          <th>Rank</th><th>Player</th><th>8 Teams</th><th>Selected Week</th><th>Weekly Total</th><th>Running Total</th><th>Games</th>
+          {% for w in range(1,19) %}<th>W{{w}}<br><small>Week / Run</small></th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody id="draft"><tr><td colspan="23">Enter commissioner password and seed the test pool.</td></tr></tbody>
     </table>
   </div>
 </section>
 
 <section class="card">
-  <div class="section-head"><div><div class="eyebrow dark-eyebrow">SURVIVOR</div><h2>Test Survivor Results</h2></div></div>
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">EDGE-CASE CHECKS</div>
+      <h2>What this simulation verifies</h2>
+    </div>
+  </div>
+  <div class="test-check-grid">
+    <div><strong>25 Players</strong><span>Leaderboard sorting under a full field</span></div>
+    <div><strong>8 Teams Each</strong><span>All selected teams contribute to weekly totals</span></div>
+    <div><strong>Positive / Negative</strong><span>Wins add margin; losses subtract margin</span></div>
+    <div><strong>Ties</strong><span>Tied NFL games contribute zero</span></div>
+    <div><strong>18 Weeks</strong><span>Weekly values roll into season totals</span></div>
+    <div><strong>Ranking Ties</strong><span>Equal totals receive the same displayed rank</span></div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">SURVIVOR SMOKE TEST</div><h2>Survivor Check</h2></div></div>
   <div class="tablewrap">
     <table>
       <thead><tr><th>Player</th><th>Pick</th><th>Result</th><th>Score</th></tr></thead>
       <tbody id="survivor"><tr><td colspan="4">No test data yet.</td></tr></tbody>
-    </table>
-  </div>
-</section>
-
-<section class="card">
-  <div class="section-head"><div><div class="eyebrow dark-eyebrow">DRAFT TEAM POOL</div><h2>Test Draft Scoring</h2></div></div>
-  <div class="tablewrap">
-    <table>
-      <thead><tr><th>Rank</th><th>Player</th><th>Teams</th><th>Points</th></tr></thead>
-      <tbody id="draft"><tr><td colspan="4">No test data yet.</td></tr></tbody>
     </table>
   </div>
 </section>
@@ -86,45 +113,100 @@ function showMsg(text,ok=true){
   m.className=ok?"test-msg ok":"test-msg error";
   m.textContent=text;
 }
-async function post(path){
-  const r=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password()})});
+async function call(path,extra={}){
+  const r=await fetch(path,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password:password(),...extra})
+  });
   const d=await r.json();
   if(!r.ok) throw new Error(d.error||"Request failed");
   showMsg(d.message||"Done.");
-  render(d.state||{games:[],survivor:[],draft:[],counts:{games:0,survived:0,eliminated:0,pending:0}});
+  render(d.state||{draft:[],survivor:[],counts:{}});
 }
-async function seed(){try{await post("/api/test-lab/seed")}catch(e){showMsg(e.message,false)}}
-async function finalizeWeek(){try{await post("/api/test-lab/finalize")}catch(e){showMsg(e.message,false)}}
-async function resetTest(){try{await post("/api/test-lab/reset"); await load()}catch(e){showMsg(e.message,false)}}
-async function load(){
+async function seed(){try{await call("/api/test-lab/seed")}catch(e){showMsg(e.message,false)}}
+async function finalizeWeek1(){try{await call("/api/test-lab/finalize")}catch(e){showMsg(e.message,false)}}
+async function finalizeThrough(n){try{await call("/api/test-lab/finalize-range",{through:n})}catch(e){showMsg(e.message,false)}}
+async function finalizeSeason(){try{await call("/api/test-lab/finalize-season")}catch(e){showMsg(e.message,false)}}
+async function resetTest(){
   try{
-    if(!password()){return;}
-    const r=await fetch("/api/test-lab/state",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:password()})});
+    await call("/api/test-lab/reset");
+    render({draft:[],survivor:[],counts:{games:0,draft_players:0,finalized_weeks:0}});
+  }catch(e){showMsg(e.message,false)}
+}
+async function load(){
+  if(!password()) return;
+  try{
+    const r=await fetch("/api/test-lab/state",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password:password()})
+    });
     const d=await r.json();
     if(!r.ok) throw new Error(d.error||"Could not load test data");
     render(d);
   }catch(e){showMsg(e.message,false)}
 }
+function scoreClass(v){return Number(v)>0?"positive":Number(v)<0?"negative":"";}
+let lastState={draft:[],survivor:[],counts:{}};
 function render(d){
+  lastState=d||lastState;
   const c=d.counts||{};
+  const draft=d.draft||[];
+  document.getElementById("draftPlayers").textContent=c.draft_players||0;
   document.getElementById("gamesCount").textContent=c.games||0;
-  document.getElementById("survived").textContent=c.survived||0;
-  document.getElementById("eliminated").textContent=c.eliminated||0;
-  document.getElementById("pending").textContent=c.pending||0;
+  document.getElementById("weeksFinal").textContent=c.finalized_weeks||0;
+  const leaderWeek=Number(document.getElementById("asOfWeek")?.value||1);
+  const leaderKey=String(leaderWeek);
+  const leaderRow=[...draft].sort((a,b)=>{
+    const av=Number((a.running_totals||{})[leaderKey]||0);
+    const bv=Number((b.running_totals||{})[leaderKey]||0);
+    return bv-av || String(a.player_name).localeCompare(String(b.player_name));
+  })[0];
+  const leaderTotal=leaderRow?Number((leaderRow.running_totals||{})[leaderKey]||0):0;
+  document.getElementById("leader").textContent=leaderRow ? `${leaderRow.player_name} (${leaderTotal>0?"+":""}${leaderTotal})` : "—";
 
-  document.getElementById("games").innerHTML=(d.games||[]).length ? d.games.map(g=>{
-    const score=(g.away_score==null||g.home_score==null)?"—":`${g.away_team} ${g.away_score} - ${g.home_team} ${g.home_score}`;
-    return `<tr><td><strong>${esc(g.away_team)}</strong> @ <strong>${esc(g.home_team)}</strong></td><td>${esc(score)}</td><td>${esc(g.status)}</td></tr>`;
-  }).join("") : '<tr><td colspan="3">No test data yet.</td></tr>';
+  const selectedWeek=Number(document.getElementById("asOfWeek")?.value||1);
+  const weekKey=String(selectedWeek);
 
-  document.getElementById("survivor").innerHTML=(d.survivor||[]).length ? d.survivor.map(p=>{
+  const ordered=[...draft].sort((a,b)=>{
+    const av=Number((a.running_totals||{})[weekKey]||0);
+    const bv=Number((b.running_totals||{})[weekKey]||0);
+    return bv-av || String(a.player_name).localeCompare(String(b.player_name));
+  });
+
+  document.getElementById("draft").innerHTML=ordered.length ? ordered.map(p=>{
+    let weeks="";
+    for(let w=1;w<=18;w++){
+      const key=String(w);
+      const weekly=Number((p.weekly_scores||{})[key]||0);
+      const running=Number((p.running_totals||{})[key]||0);
+      const games=Number((p.weekly_games||{})[key]||0);
+      weeks+=`<td class="${w===selectedWeek?"selected-week-cell":""}">
+        ${games?`<strong class="${scoreClass(weekly)}">${weekly>0?"+":""}${weekly}</strong>`:"<strong>0</strong>"}
+        <br><small class="${scoreClass(running)}">Run: ${running>0?"+":""}${running}</small>
+      </td>`;
+    }
+    const teams=(p.teams||[]).map(t=>`<span class="mini-team">${esc(t)}</span>`).join(" ");
+    const weekly=Number((p.weekly_scores||{})[weekKey]||0);
+    const running=Number((p.running_totals||{})[weekKey]||0);
+    const rank=Number((p.week_ranks||{})[weekKey]||p.rank||0);
+    const gamesThrough=Object.entries(p.weekly_games||{}).reduce((sum,[wk,count])=>sum+(Number(wk)<=selectedWeek?Number(count):0),0);
+    return `<tr>
+      <td><strong>${rank}</strong></td>
+      <td><strong>${esc(p.player_name)}</strong></td>
+      <td><div class="mini-team-list">${teams}</div></td>
+      <td><strong>Week ${selectedWeek}</strong></td>
+      <td class="${scoreClass(weekly)}"><strong>${weekly>0?"+":""}${weekly}</strong></td>
+      <td class="${scoreClass(running)}"><strong>${running>0?"+":""}${running}</strong></td>
+      <td>${gamesThrough}</td>
+      ${weeks}
+    </tr>`;
+  }).join("") : '<tr><td colspan="25">No Draft test data loaded.</td></tr>';
+
+  const survivor=d.survivor||[];
+  document.getElementById("survivor").innerHTML=survivor.length ? survivor.map(p=>{
     const cls=p.status==="SURVIVED"?"positive":p.status==="ELIMINATED"?"negative":"";
     return `<tr><td>${esc(p.player_name)}</td><td><strong>${esc(p.team)}</strong></td><td class="${cls}"><strong>${esc(p.status)}</strong></td><td>${esc(p.score||"—")}</td></tr>`;
-  }).join("") : '<tr><td colspan="4">No test data yet.</td></tr>';
-
-  document.getElementById("draft").innerHTML=(d.draft||[]).length ? d.draft.map((p,i)=>{
-    const cls=Number(p.total_points)>0?"positive":Number(p.total_points)<0?"negative":"";
-    return `<tr><td>${i+1}</td><td>${esc(p.player_name)}</td><td>${esc(p.team1)} · ${esc(p.team2)}</td><td class="${cls}"><strong>${p.total_points>0?"+":""}${esc(p.total_points)}</strong></td></tr>`;
   }).join("") : '<tr><td colspan="4">No test data yet.</td></tr>';
 }
 document.getElementById("password").addEventListener("change",load);

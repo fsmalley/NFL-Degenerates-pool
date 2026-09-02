@@ -111,3 +111,33 @@ The Test Lab:
 - Includes a reset action that deletes only test-table data.
 
 Before deploying V2.1, run `test_mode_schema_update.sql` once in Supabase SQL Editor.
+
+
+## V2.2 Full Draft Pool Test
+
+The Test Lab now supports a full Draft Team Pool stress test:
+
+- 25 synthetic Draft players.
+- 8 unique NFL teams assigned to each test player.
+- 18 synthetic weeks with 16 games per week (288 test games).
+- Deterministic fake scores so repeated tests give consistent results.
+- Week 1, Weeks 1–5, Weeks 1–10, and full-season simulation controls.
+- Weekly scoring columns plus season totals.
+- Positive and negative point differential.
+- Intentional tied games to verify zero-point behavior.
+- Shared ranking numbers when players finish with equal totals.
+- All simulation data remains in isolated `test_` Supabase tables.
+
+Before deploying V2.2, run `v2_2_full_draft_test_schema_update.sql` once in Supabase SQL Editor. It only adds team3 through team8 to `test_draft_players`.
+
+
+### V2.2 running-total enhancement
+
+The Draft Test Lab now displays:
+- each player's score for the selected week;
+- cumulative running total through that week;
+- player rank as of the selected week;
+- weekly score and running total together for Weeks 1–18;
+- leaderboard re-sorting whenever the selected "as of" week changes.
+
+This makes it possible to verify that standings move correctly from week to week instead of ranking only by the current week's result.

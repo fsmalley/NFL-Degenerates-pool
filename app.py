@@ -948,32 +948,88 @@ def require_admin(payload=None):
     return True, None
 
 
+
+TEST_TEAM_CODES = list(TEAMS.keys())
+
+
+def build_test_schedule():
+    """Deterministic 18-week synthetic schedule; test tables only."""
+    teams = TEST_TEAM_CODES[:]
+    games = []
+    for week in range(1, 19):
+        # Rotate the team list so opponents change each week.
+        shift = (week - 1) % len(teams)
+        rotated = teams[shift:] + teams[:shift]
+        for i in range(0, 32, 2):
+            away = rotated[i]
+            home = rotated[i + 1]
+            games.append({
+                "id": f"TD-W{week:02d}-G{(i//2)+1:02d}",
+                "week": week,
+                "away_team": away,
+                "home_team": home,
+                "away_score": None,
+                "home_score": None,
+                "status": "scheduled"
+            })
+    return games
+
+
+def build_test_draft_players():
+    """Create 25 players with 8 deterministic, varied team selections."""
+    teams = TEST_TEAM_CODES[:]
+    players = []
+    for i in range(25):
+        # Stepped selection produces overlap while still giving each player 8 unique teams.
+        selected = []
+        cursor = (i * 3) % 32
+        step = 5 + (i % 3)
+        while len(selected) < 8:
+            team = teams[cursor % 32]
+            if team not in selected:
+                selected.append(team)
+            cursor += step
+        row = {"player_name": f"Test Draft {i+1:02d}"}
+        for n, team in enumerate(selected, 1):
+            row[f"team{n}"] = team
+        players.append(row)
+    return players
+
+
+def deterministic_test_score(week, game_number, away_team, home_team):
+    """Repeatable fake final score, including occasional ties."""
+    base = (week * 11 + game_number * 7 + sum(ord(c) for c in away_team + home_team)) % 24
+    away = 13 + ((base + week + game_number) % 28)
+    home = 10 + ((base * 2 + week + game_number * 3) % 31)
+
+    # Force a few edge cases: ties and large margins.
+    if week in (4, 11) and game_number == 3:
+        home = away
+    if week in (2, 9, 16) and game_number == 8:
+        away = 42
+        home = 10
+    return away, home
+
+
 def test_seed_rows():
-    games = [
-        {"id":"T-W1-1","week":1,"away_team":"BUF","home_team":"NYJ","away_score":None,"home_score":None,"status":"scheduled"},
-        {"id":"T-W1-2","week":1,"away_team":"KC","home_team":"LV","away_score":None,"home_score":None,"status":"scheduled"},
-        {"id":"T-W1-3","week":1,"away_team":"PHI","home_team":"DAL","away_score":None,"home_score":None,"status":"scheduled"},
-        {"id":"T-W1-4","week":1,"away_team":"BAL","home_team":"PIT","away_score":None,"home_score":None,"status":"scheduled"},
-    ]
+    # Keep the original Survivor smoke test alongside the full Draft simulator.
+    games = build_test_schedule()
     picks = [
         {"player_name":"Test Player 1","player_key":"test player 1","week":1,"team":"BUF"},
         {"player_name":"Test Player 2","player_key":"test player 2","week":1,"team":"LV"},
         {"player_name":"Test Player 3","player_key":"test player 3","week":1,"team":"PHI"},
     ]
-    draft = [
-        {"player_name":"Test Draft 1","team1":"BUF","team2":"KC"},
-        {"player_name":"Test Draft 2","team1":"NYJ","team2":"LV"},
-        {"player_name":"Test Draft 3","team1":"PHI","team2":"BAL"},
-    ]
+    draft = build_test_draft_players()
     return games, picks, draft
 
 
 def test_compute():
-    games = sb_get("test_games", {"select":"*","order":"id.asc"})
+    games = sb_get("test_games", {"select":"*","order":"week.asc,id.asc"})
     survivor_picks = sb_get("test_survivor_picks", {"select":"*","order":"player_name.asc"})
     draft_players = sb_get("test_draft_players", {"select":"*","order":"player_name.asc"})
 
     computed_games = []
+    games_by_week = {w: [] for w in range(1, 19)}
     for g in games:
         a, h = g.get("away_score"), g.get("home_score")
         winner = loser = margin = None
@@ -985,12 +1041,14 @@ def test_compute():
                 winner, loser, margin = g["home_team"], g["away_team"], h-a
             else:
                 winner, loser, margin = "TIE", "TIE", 0
-        computed_games.append({**g, "winner":winner, "loser":loser, "margin":margin})
+        cg = {**g, "winner":winner, "loser":loser, "margin":margin}
+        computed_games.append(cg)
+        games_by_week.setdefault(int(g["week"]), []).append(cg)
 
     survivor = []
     for p in survivor_picks:
         status, score = "PENDING", ""
-        for g in computed_games:
+        for g in games_by_week.get(int(p["week"]), []):
             if p["team"] not in (g["away_team"], g["home_team"]):
                 continue
             if str(g.get("status") or "").lower() == "final":
@@ -1001,30 +1059,125 @@ def test_compute():
 
     draft = []
     for p in draft_players:
+        selected = [(p.get(f"team{n}") or "").upper() for n in range(1,9)]
+        weekly = {str(w):0 for w in range(1,19)}
+        weekly_games = {str(w):0 for w in range(1,19)}
         total = 0
-        for field in ("team1","team2"):
-            team = p.get(field) or ""
-            for g in computed_games:
+        games_count = 0
+
+        for week in range(1,19):
+            for g in games_by_week.get(week, []):
                 if g.get("margin") is None:
                     continue
-                if g.get("winner") == team:
-                    total += int(g["margin"])
-                elif g.get("loser") == team:
-                    total -= int(g["margin"])
-        draft.append({**p, "total_points":total})
+                for team in selected:
+                    score = None
+                    if g.get("winner") == team:
+                        score = int(g["margin"])
+                    elif g.get("loser") == team:
+                        score = -int(g["margin"])
+                    elif g.get("winner") == "TIE" and team in (g.get("away_team"), g.get("home_team")):
+                        score = 0
+                    if score is not None:
+                        weekly[str(week)] += score
+                        total += score
+                        weekly_games[str(week)] += 1
+                        games_count += 1
+
+        running = {}
+        cumulative = 0
+        for week in range(1,19):
+            cumulative += int(weekly[str(week)])
+            running[str(week)] = cumulative
+
+        draft.append({
+            **p,
+            "teams": selected,
+            "total_points": total,
+            "games_count": games_count,
+            "weekly_scores": weekly,
+            "weekly_games": weekly_games,
+            "running_totals": running,
+            "week_ranks": {}
+        })
+
+    # Final season/current overall rank.
     draft.sort(key=lambda x:(-x["total_points"], x["player_name"].lower()))
+    rank = 0
+    previous_score = None
+    for idx, p in enumerate(draft, 1):
+        if previous_score is None or p["total_points"] != previous_score:
+            rank = idx
+            previous_score = p["total_points"]
+        p["rank"] = rank
+
+    # Rank each player as of the end of every week using cumulative totals.
+    for week in range(1,19):
+        key = str(week)
+        ordered = sorted(
+            draft,
+            key=lambda x: (-int(x["running_totals"][key]), x["player_name"].lower())
+        )
+        week_rank = 0
+        previous_week_score = None
+        for idx, p in enumerate(ordered, 1):
+            score = int(p["running_totals"][key])
+            if previous_week_score is None or score != previous_week_score:
+                week_rank = idx
+                previous_week_score = score
+            p["week_ranks"][key] = week_rank
+
+    finalized_weeks = []
+    for week in range(1,19):
+        wg = games_by_week.get(week, [])
+        if wg and all(str(g.get("status") or "").lower()=="final" for g in wg):
+            finalized_weeks.append(week)
 
     return {
         "games":computed_games,
         "survivor":survivor,
         "draft":draft,
+        "finalized_weeks":finalized_weeks,
         "counts":{
             "games":len(computed_games),
+            "draft_players":len(draft),
+            "finalized_weeks":len(finalized_weeks),
             "survived":sum(1 for x in survivor if x["status"]=="SURVIVED"),
             "eliminated":sum(1 for x in survivor if x["status"]=="ELIMINATED"),
             "pending":sum(1 for x in survivor if x["status"]=="PENDING")
         }
     }
+
+
+def seed_full_test_data():
+    sb_delete("test_games", {"id":"neq.__never__"})
+    sb_delete("test_survivor_picks", {"id":"gte.0"})
+    sb_delete("test_draft_players", {"id":"gte.0"})
+
+    games, picks, draft = test_seed_rows()
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    sb_upsert("test_games", [{**g,"updated_at":now} for g in games], "id")
+    sb_upsert("test_survivor_picks", [{**p,"updated_at":now} for p in picks], "player_key,week")
+    sb_upsert("test_draft_players", [{**p,"updated_at":now} for p in draft], "player_name")
+
+
+def finalize_test_weeks(weeks):
+    current = sb_get("test_games", {"select":"*","order":"week.asc,id.asc"})
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    rows = []
+    per_week_counter = {}
+    for g in current:
+        week = int(g["week"])
+        if week not in weeks:
+            continue
+        per_week_counter[week] = per_week_counter.get(week, 0) + 1
+        away, home = deterministic_test_score(
+            week, per_week_counter[week], g["away_team"], g["home_team"]
+        )
+        rows.append({
+            "id":g["id"], "week":week, "away_team":g["away_team"], "home_team":g["home_team"],
+            "away_score":away, "home_score":home, "status":"final", "updated_at":now
+        })
+    sb_upsert("test_games", rows, "id")
 
 
 @app.route("/api/test-lab/state", methods=["POST"])
@@ -1045,17 +1198,8 @@ def api_test_lab_seed():
     ok, err = require_admin(payload)
     if not ok:
         return jsonify({"ok":False,"error":err[0]}), err[1]
-
-    sb_delete("test_games", {"id":"neq.__never__"})
-    sb_delete("test_survivor_picks", {"id":"gte.0"})
-    sb_delete("test_draft_players", {"id":"gte.0"})
-
-    games, picks, draft = test_seed_rows()
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-    sb_upsert("test_games", [{**g,"updated_at":now} for g in games], "id")
-    sb_upsert("test_survivor_picks", [{**p,"updated_at":now} for p in picks], "player_key,week")
-    sb_upsert("test_draft_players", [{**p,"updated_at":now} for p in draft], "player_name")
-    return jsonify({"ok":True,"message":"Safe test data seeded.","state":test_compute()})
+    seed_full_test_data()
+    return jsonify({"ok":True,"message":"Full 25-player Draft Pool test seeded with 18 weeks of games.","state":test_compute()})
 
 
 @app.route("/api/test-lab/finalize", methods=["POST"])
@@ -1064,25 +1208,35 @@ def api_test_lab_finalize():
     ok, err = require_admin(payload)
     if not ok:
         return jsonify({"ok":False,"error":err[0]}), err[1]
-
-    scores = {
-        "T-W1-1": (27,17),
-        "T-W1-2": (24,20),
-        "T-W1-3": (21,28),
-        "T-W1-4": (31,14),
-    }
-    current = sb_get("test_games", {"select":"*","order":"id.asc"})
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-    rows = []
-    for g in current:
-        if g["id"] in scores:
-            away, home = scores[g["id"]]
-            rows.append({
-                "id":g["id"],"week":g["week"],"away_team":g["away_team"],"home_team":g["home_team"],
-                "away_score":away,"home_score":home,"status":"final","updated_at":now
-            })
-    sb_upsert("test_games", rows, "id")
+    finalize_test_weeks({1})
     return jsonify({"ok":True,"message":"Test Week 1 finalized.","state":test_compute()})
+
+
+@app.route("/api/test-lab/finalize-range", methods=["POST"])
+def api_test_lab_finalize_range():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+
+    through = int(payload.get("through") or 1)
+    through = max(1, min(18, through))
+    finalize_test_weeks(set(range(1, through+1)))
+    return jsonify({
+        "ok":True,
+        "message":f"Test Weeks 1–{through} finalized.",
+        "state":test_compute()
+    })
+
+
+@app.route("/api/test-lab/finalize-season", methods=["POST"])
+def api_test_lab_finalize_season():
+    payload = request.get_json(silent=True) or {}
+    ok, err = require_admin(payload)
+    if not ok:
+        return jsonify({"ok":False,"error":err[0]}), err[1]
+    finalize_test_weeks(set(range(1,19)))
+    return jsonify({"ok":True,"message":"Full 18-week Draft Pool test season finalized.","state":test_compute()})
 
 
 @app.route("/api/test-lab/reset", methods=["POST"])
