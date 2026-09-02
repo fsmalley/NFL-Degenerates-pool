@@ -6,10 +6,20 @@ import re
 import datetime as dt
 import requests
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+# Stable session signing key without requiring another Render setting.
+# A dedicated FLASK_SECRET_KEY may be supplied, otherwise derive one from
+# existing server-side secrets so member sessions survive app restarts.
+_session_seed = os.getenv("FLASK_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("ADMIN_PASSWORD") or secrets.token_hex(32)
+app.secret_key = hashlib.sha256((_session_seed + "|nfl-degenerates-session").encode("utf-8")).hexdigest()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("RENDER", "").lower() in ("true", "1", "yes")
+)
 
 SEASON = int(os.getenv("NFL_SEASON", "2026"))
 API_BASE = os.getenv("NFLDATA_API_BASE", "https://api.nfldata.org")
@@ -825,6 +835,115 @@ def survivor_player_history(player_key):
     return rows
 
 
+
+# -----------------------------
+# Private Member Login (V2.10)
+# -----------------------------
+
+PUBLIC_ENDPOINTS = {"member_login", "health", "static"}
+
+def get_member_password_hash():
+    """Return the stored site-member password hash, if configured."""
+    try:
+        rows = sb_get(
+            "site_settings",
+            {"select":"setting_value","setting_key":"eq.member_password_hash","limit":"1"}
+        )
+        if rows:
+            return str(rows[0].get("setting_value") or "")
+    except Exception as e:
+        print(f"SITE PASSWORD READ WARNING: {type(e).__name__}: {e}", flush=True)
+    return ""
+
+
+def verify_member_password(password):
+    stored = get_member_password_hash()
+    if stored:
+        try:
+            return check_password_hash(stored, str(password or ""))
+        except Exception:
+            return False
+
+    # Bootstrap/recovery behavior: until a separate member password is saved,
+    # the commissioner password grants access. SITE_PASSWORD may optionally
+    # be supplied as an alternate bootstrap password.
+    bootstrap = os.getenv("SITE_PASSWORD", "") or ADMIN_PASSWORD
+    return bool(bootstrap) and hmac.compare_digest(str(password or ""), bootstrap)
+
+
+@app.before_request
+def require_member_login():
+    endpoint = request.endpoint or ""
+    if endpoint in PUBLIC_ENDPOINTS or endpoint.startswith("static"):
+        return None
+    if session.get("member_authenticated") is True:
+        return None
+
+    if request.path.startswith("/api/"):
+        return jsonify({"ok":False,"error":"Member login required."}), 401
+
+    return redirect(url_for("member_login", next=request.full_path if request.query_string else request.path))
+
+
+@app.route("/login", methods=["GET","POST"])
+def member_login():
+    if session.get("member_authenticated") is True and request.method == "GET":
+        return redirect(url_for("index"))
+
+    error = ""
+    if request.method == "POST":
+        password = str(request.form.get("password") or "")
+        if verify_member_password(password):
+            session.clear()
+            session["member_authenticated"] = True
+            session.permanent = True
+            requested_next = str(request.form.get("next") or "").strip()
+            if requested_next.startswith("/") and not requested_next.startswith("//"):
+                return redirect(requested_next)
+            return redirect(url_for("index"))
+        error = "Incorrect member password."
+
+    return render_template(
+        "login.html",
+        season=SEASON,
+        error=error,
+        next_path=str(request.args.get("next") or "")
+    )
+
+
+@app.route("/logout")
+def member_logout():
+    session.clear()
+    return redirect(url_for("member_login"))
+
+
+@app.route("/api/admin/site-password", methods=["POST"])
+def api_admin_site_password():
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("admin_password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}), 403
+
+    new_password = str(payload.get("new_password") or "")
+    confirm_password = str(payload.get("confirm_password") or "")
+    if len(new_password) < 6:
+        return jsonify({"ok":False,"error":"Member password must be at least 6 characters."}), 400
+    if len(new_password) > 100:
+        return jsonify({"ok":False,"error":"Member password is too long."}), 400
+    if new_password != confirm_password:
+        return jsonify({"ok":False,"error":"The new passwords do not match."}), 400
+
+    password_hash = generate_password_hash(new_password)
+    sb_upsert(
+        "site_settings",
+        [{"setting_key":"member_password_hash","setting_value":password_hash,"updated_at":dt.datetime.now(dt.timezone.utc).isoformat()}],
+        "setting_key"
+    )
+    return jsonify({
+        "ok":True,
+        "message":"Member site password updated successfully. Existing signed-in members will remain signed in until they log out or their session expires."
+    })
+
+
 # -----------------------------
 # Confidence Pool (V2.9)
 # -----------------------------
@@ -1328,7 +1447,8 @@ def health():
         sb_get("confidence_players", {"select":"id","limit":"1"})
         sb_get("confidence_entries", {"select":"id","limit":"1"})
         sb_get("confidence_picks", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence"]}), 200
+        sb_get("site_settings", {"select":"setting_key","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500

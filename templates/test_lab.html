@@ -49,6 +49,7 @@
     </div>
 
     <a class="nav-direct active-nav" href="/test-lab">COMMISSIONER</a>
+      <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
 
@@ -75,6 +76,25 @@
     <button onclick="resetTest()">Reset Test Data</button>
   </div>
   <div id="msg"></div>
+</section>
+
+
+<section class="card member-password-admin">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">PRIVATE MEMBER ACCESS</div>
+      <h2>Change Member Site Password</h2>
+      <p>Change the shared password members use to enter NFL Degenerates. This does not change the Commissioner password.</p>
+    </div>
+  </div>
+  <div class="member-password-grid">
+    <label><span>Commissioner Password</span><input id="siteAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
+    <label><span>New Member Password</span><input id="newSitePassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+    <label><span>Confirm New Password</span><input id="confirmSitePassword" type="password" autocomplete="new-password" placeholder="Re-enter new password"></label>
+    <button class="primary" type="button" onclick="changeMemberPassword()">Change Member Password</button>
+  </div>
+  <div id="sitePasswordMsg"></div>
+  <p class="instruction-note"><strong>Recovery:</strong> if no separate member password has been saved yet, the Commissioner password can be used as the initial member password. After saving a member password here, members use the new password.</p>
 </section>
 
 <section class="summary-grid">
@@ -156,6 +176,30 @@
 </main>
 
 <script>
+async function changeMemberPassword(){
+  const admin_password=document.getElementById("siteAdminPassword").value;
+  const new_password=document.getElementById("newSitePassword").value;
+  const confirm_password=document.getElementById("confirmSitePassword").value;
+  const msg=document.getElementById("sitePasswordMsg");
+  msg.className="test-msg";
+  msg.textContent="Updating member password…";
+  try{
+    const r=await fetch("/api/admin/site-password",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({admin_password,new_password,confirm_password})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not update member password.");
+    msg.className="test-msg ok";
+    msg.textContent="✓ "+d.message;
+    document.getElementById("newSitePassword").value="";
+    document.getElementById("confirmSitePassword").value="";
+  }catch(e){
+    msg.className="test-msg error";
+    msg.textContent=e.message;
+  }
+}
 function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");}
 function password(){return document.getElementById("password").value;}
 function showMsg(text,ok=true){

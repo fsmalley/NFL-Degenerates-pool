@@ -379,3 +379,103 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 .player-instructions-body{border-top:1px solid #e5e9ef;padding:15px 20px 17px}.player-instructions-body ol{margin:0;padding-left:22px}.player-instructions-body li{margin:0 0 9px;line-height:1.45}
 .instruction-note{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:#f7f9fc;font-size:13px}
 @media(max-width:600px){.player-instructions summary{padding:13px 14px}.player-instructions summary small{display:none}.player-instructions-body{padding:14px 16px 16px}}
+
+
+/* V2.10 Private Member Login */
+.member-login-page{
+  margin:0;
+  min-height:100vh;
+  background:#07150d;
+  color:#fff;
+  overflow:hidden;
+}
+.football-bg{
+  position:fixed;inset:0;overflow:hidden;
+  background:
+    radial-gradient(circle at 50% -10%,rgba(255,255,255,.15),transparent 34%),
+    linear-gradient(180deg,#101923 0%,#0b2418 48%,#07351f 100%);
+}
+.football-bg:before{
+  content:"";position:absolute;inset:0;
+  background:
+    repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 1px,transparent 1px 6%),
+    linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.48));
+}
+.stadium-glow{
+  position:absolute;top:-12%;width:42%;height:52%;
+  background:radial-gradient(ellipse at center,rgba(255,245,199,.45),rgba(255,245,199,.08) 38%,transparent 70%);
+  filter:blur(7px)
+}
+.stadium-glow-left{left:-8%;transform:rotate(-14deg)}
+.stadium-glow-right{right:-8%;transform:rotate(14deg)}
+.field-perspective{
+  position:absolute;left:50%;bottom:-18vh;width:min(1200px,120vw);height:72vh;
+  transform:translateX(-50%) perspective(800px) rotateX(62deg);
+  transform-origin:center bottom;
+  background:
+    linear-gradient(90deg,transparent 49.65%,rgba(255,255,255,.75) 49.65% 50.35%,transparent 50.35%),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 8%,rgba(0,0,0,.03) 8% 16%),
+    linear-gradient(#0c6a39,#084f2b);
+  border-left:4px solid rgba(255,255,255,.65);
+  border-right:4px solid rgba(255,255,255,.65);
+  box-shadow:0 -25px 80px rgba(0,0,0,.38)
+}
+.field-perspective .yard{
+  position:absolute;left:0;right:0;height:3px;background:rgba(255,255,255,.82)
+}
+.y10{top:14%}.y20{top:29%}.y30{top:44%}.y40{top:59%}.y50{top:74%}
+.field-center{
+  position:absolute;left:50%;top:0;bottom:0;width:3px;background:rgba(255,255,255,.45)
+}
+.member-login-shell{
+  position:relative;z-index:2;min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:28px 18px;
+}
+.member-login-card{
+  width:min(440px,100%);
+  padding:34px 34px 30px;
+  border-radius:18px;
+  background:rgba(9,15,20,.86);
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:0 24px 80px rgba(0,0,0,.48);
+  backdrop-filter:blur(10px);
+  text-align:center;
+}
+.login-football-mark{font-size:44px;margin-bottom:8px}
+.login-kicker{font-size:11px;letter-spacing:.16em;font-weight:900;color:#e4bc5d}
+.member-login-card h1{
+  margin:7px 0 6px;font-size:clamp(36px,7vw,58px);line-height:.95;
+  text-transform:uppercase;letter-spacing:-.035em
+}
+.login-subtitle{margin:0 0 24px;color:#c6ced7}
+.member-login-form{display:flex;flex-direction:column;gap:9px;text-align:left}
+.member-login-form label{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
+.member-login-form input{
+  padding:14px 15px;border-radius:9px;border:1px solid rgba(255,255,255,.2);
+  background:#fff;color:#111;font:inherit
+}
+.member-login-form button{
+  margin-top:6px;padding:14px;border:0;border-radius:9px;
+  background:#d6a83f;color:#151515;font-weight:950;letter-spacing:.04em;cursor:pointer
+}
+.member-login-form button:hover{filter:brightness(1.08)}
+.login-error{margin:0 0 14px;padding:10px;border-radius:8px;background:rgba(157,34,34,.8);font-weight:800}
+.login-help{margin:17px 0 0;color:#aab4be;font-size:12px}
+.member-password-grid{
+  display:grid;grid-template-columns:repeat(3,minmax(170px,1fr)) auto;
+  gap:12px;align-items:end
+}
+.member-password-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:900}
+.member-password-grid input{
+  padding:10px 11px;border:1px solid #cfd6df;border-radius:8px;background:#fff;font:inherit
+}
+.member-logout{opacity:.86}
+@media(max-width:900px){
+  .member-password-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:600px){
+  .member-login-card{padding:28px 22px 24px}
+  .member-password-grid{grid-template-columns:1fr}
+  .member-password-grid button{width:100%}
+}

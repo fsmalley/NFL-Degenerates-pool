@@ -298,3 +298,23 @@ No Supabase schema migration is required for V2.9.1.
 
 ## V2.9.2 — Player Instructions
 Added collapsible How to Submit instructions to Draft, Survivor, and Confidence player-entry pages. No Supabase migration is required.
+
+
+## V2.10 — Private Member Login
+
+V2.10 adds a password-protected member landing page titled **NFL Degenerates**.
+
+- All pool pages and APIs require a signed-in member session.
+- `/login` is the public landing/login page.
+- `/logout` signs the member out.
+- The login uses a shared member password.
+- The saved member password is stored as a one-way hash in Supabase.
+- Commissioner/Test Lab now includes **Change Member Site Password**.
+- Changing the member password requires the existing `ADMIN_PASSWORD`.
+- The Commissioner password itself is not changed.
+- Until a separate member password has been saved, the existing Commissioner password acts as the initial login password. An optional `SITE_PASSWORD` Render environment variable may also be used as the bootstrap password.
+- Existing logged-in sessions are not forcibly terminated when the password changes; they remain valid until logout/session expiration.
+- The login background is an original football-stadium/field themed CSS design and does not use NFL/team logos.
+
+### Database update required
+Run `v2_10_private_login_schema_update.sql` in the Supabase SQL Editor before deploying V2.10.
