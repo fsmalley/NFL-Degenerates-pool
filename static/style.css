@@ -489,3 +489,32 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 @media(max-width:600px){
   .member-login-card h1{left:-4px;width:calc(100% + 4px)}
 }
+
+
+/* V2.10.2 Landing footer */
+.login-meta{
+  margin-top:20px;
+  padding-top:14px;
+  border-top:1px solid rgba(255,255,255,.13);
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:10px 16px;
+  flex-wrap:wrap;
+  color:#9eabb6;
+  font-size:11px;
+  line-height:1.35
+}
+.login-meta span{white-space:nowrap}
+.login-meta strong{color:#c8d0d7;font-weight:800}
+.site-branding-preview{
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:8px;
+  background:#f7f9fc;
+  font-size:13px
+}
+@media(max-width:600px){
+  .login-meta{gap:6px 12px}
+  .login-meta span{white-space:normal}
+}

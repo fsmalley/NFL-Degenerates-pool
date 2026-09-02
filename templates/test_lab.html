@@ -97,6 +97,26 @@
   <p class="instruction-note"><strong>Recovery:</strong> if no separate member password has been saved yet, the Commissioner password can be used as the initial member password. After saving a member password here, members use the new password.</p>
 </section>
 
+<section class="card landing-branding-admin">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">LANDING PAGE FOOTER</div>
+      <h2>Visitor Count & Design Credit</h2>
+      <p>The visitor count increases after each successful member login. Update the displayed designer credit and date/year below.</p>
+    </div>
+  </div>
+  <div class="member-password-grid">
+    <label><span>Commissioner Password</span><input id="brandingAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
+    <label><span>Designed By</span><input id="designerName" type="text" maxlength="80" placeholder="Name or credit"></label>
+    <label><span>Date / Year</span><input id="siteDate" type="text" maxlength="40" placeholder="Example: 2026"></label>
+    <button class="primary" type="button" onclick="saveLandingBranding()">Save Footer</button>
+  </div>
+  <div class="site-branding-preview">
+    <span>Current Visitor Count: <strong id="brandingVisitorCount">—</strong></span>
+  </div>
+  <div id="brandingMsg"></div>
+</section>
+
 <section class="summary-grid">
   <div class="summary-card"><span>Draft Players</span><strong id="draftPlayers">0</strong></div>
   <div class="summary-card"><span>Games Loaded</span><strong id="gamesCount">0</strong></div>
@@ -200,6 +220,46 @@ async function changeMemberPassword(){
     msg.textContent=e.message;
   }
 }
+
+async function loadLandingBranding(){
+  try{
+    const r=await fetch("/api/admin/site-branding");
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not load landing-page footer settings.");
+    document.getElementById("designerName").value=d.designer_name||"";
+    document.getElementById("siteDate").value=d.site_date||"";
+    document.getElementById("brandingVisitorCount").textContent=d.visitor_count??0;
+  }catch(e){
+    const msg=document.getElementById("brandingMsg");
+    msg.className="test-msg error";
+    msg.textContent=e.message;
+  }
+}
+async function saveLandingBranding(){
+  const admin_password=document.getElementById("brandingAdminPassword").value;
+  const designer_name=document.getElementById("designerName").value.trim();
+  const site_date=document.getElementById("siteDate").value.trim();
+  const msg=document.getElementById("brandingMsg");
+  msg.className="test-msg";
+  msg.textContent="Saving footer…";
+  try{
+    const r=await fetch("/api/admin/site-branding",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({admin_password,designer_name,site_date})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not save landing-page footer.");
+    msg.className="test-msg ok";
+    msg.textContent="✓ "+d.message;
+    document.getElementById("brandingVisitorCount").textContent=d.visitor_count??0;
+  }catch(e){
+    msg.className="test-msg error";
+    msg.textContent=e.message;
+  }
+}
+loadLandingBranding();
+
 function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");}
 function password(){return document.getElementById("password").value;}
 function showMsg(text,ok=true){

@@ -318,3 +318,17 @@ V2.10 adds a password-protected member landing page titled **NFL Degenerates**.
 
 ### Database update required
 Run `v2_10_private_login_schema_update.sql` in the Supabase SQL Editor before deploying V2.10.
+
+
+## V2.10.2 — Visitor Count & Landing Footer
+
+The private NFL Degenerates landing page now displays:
+- Visitor Count
+- Designed by
+- Date / year
+
+The visitor count increments only after a successful member login, rather than on every page refresh.
+
+Commissioner → Test Lab includes **Visitor Count & Design Credit** controls. The commissioner can update the displayed designer credit and date/year using the existing Commissioner password.
+
+This release uses the existing `site_settings` table from V2.10, so no additional Supabase migration is required.

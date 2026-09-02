@@ -856,6 +856,51 @@ def get_member_password_hash():
     return ""
 
 
+
+def get_site_setting(key, default=""):
+    try:
+        rows = sb_get(
+            "site_settings",
+            {"select":"setting_value","setting_key":f"eq.{key}","limit":"1"}
+        )
+        if rows:
+            return str(rows[0].get("setting_value") or default)
+    except Exception as e:
+        print(f"SITE SETTING READ WARNING [{key}]: {type(e).__name__}: {e}", flush=True)
+    return str(default)
+
+
+def site_branding():
+    designer = get_site_setting("designer_name", "Pool Commissioner")
+    site_date = get_site_setting("site_date", str(SEASON))
+    raw_count = get_site_setting("visitor_count", "0")
+    try:
+        visitor_count = max(0, int(raw_count))
+    except Exception:
+        visitor_count = 0
+    return {
+        "designer_name": designer,
+        "site_date": site_date,
+        "visitor_count": visitor_count
+    }
+
+
+def increment_visitor_count():
+    """Count successful member logins, not page refreshes."""
+    branding = site_branding()
+    new_count = int(branding["visitor_count"]) + 1
+    sb_upsert(
+        "site_settings",
+        [{
+            "setting_key":"visitor_count",
+            "setting_value":str(new_count),
+            "updated_at":dt.datetime.now(dt.timezone.utc).isoformat()
+        }],
+        "setting_key"
+    )
+    return new_count
+
+
 def verify_member_password(password):
     stored = get_member_password_hash()
     if stored:
@@ -894,6 +939,10 @@ def member_login():
     if request.method == "POST":
         password = str(request.form.get("password") or "")
         if verify_member_password(password):
+            try:
+                increment_visitor_count()
+            except Exception as e:
+                print(f"VISITOR COUNT WARNING: {type(e).__name__}: {e}", flush=True)
             session.clear()
             session["member_authenticated"] = True
             session.permanent = True
@@ -903,11 +952,15 @@ def member_login():
             return redirect(url_for("index"))
         error = "Incorrect member password."
 
+    branding = site_branding()
     return render_template(
         "login.html",
         season=SEASON,
         error=error,
-        next_path=str(request.args.get("next") or "")
+        next_path=str(request.args.get("next") or ""),
+        designer_name=branding["designer_name"],
+        site_date=branding["site_date"],
+        visitor_count=branding["visitor_count"]
     )
 
 
@@ -941,6 +994,44 @@ def api_admin_site_password():
     return jsonify({
         "ok":True,
         "message":"Member site password updated successfully. Existing signed-in members will remain signed in until they log out or their session expires."
+    })
+
+
+
+@app.route("/api/admin/site-branding", methods=["GET","POST"])
+def api_admin_site_branding():
+    if request.method == "GET":
+        return jsonify({"ok":True, **site_branding()})
+
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("admin_password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}), 403
+
+    designer_name = str(payload.get("designer_name") or "").strip()
+    site_date = str(payload.get("site_date") or "").strip()
+
+    if not designer_name:
+        return jsonify({"ok":False,"error":"Enter the designer name or credit."}), 400
+    if len(designer_name) > 80:
+        return jsonify({"ok":False,"error":"Designer credit is too long."}), 400
+    if not site_date:
+        return jsonify({"ok":False,"error":"Enter the date or year to display."}), 400
+    if len(site_date) > 40:
+        return jsonify({"ok":False,"error":"Displayed date is too long."}), 400
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    sb_upsert(
+        "site_settings",
+        [
+            {"setting_key":"designer_name","setting_value":designer_name,"updated_at":now},
+            {"setting_key":"site_date","setting_value":site_date,"updated_at":now}
+        ],
+        "setting_key"
+    )
+    return jsonify({
+        "ok":True,
+        "message":"Landing-page footer updated.",
+        **site_branding()
     })
 
 
