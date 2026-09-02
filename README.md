@@ -295,3 +295,6 @@ V2.9.1 fixes future-game schedule timing.
 - If ESPN is temporarily unavailable, the app falls back to the existing NFLData schedule instead of breaking.
 
 No Supabase schema migration is required for V2.9.1.
+
+## V2.9.2 — Player Instructions
+Added collapsible How to Submit instructions to Draft, Survivor, and Confidence player-entry pages. No Supabase migration is required.

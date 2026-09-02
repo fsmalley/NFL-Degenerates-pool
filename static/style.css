@@ -370,3 +370,12 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   .confidence-entry-head button{width:100%}
   .confidence-detail-grid{grid-template-columns:1fr}
 }
+
+/* V2.9.2 Player Instructions */
+.player-instructions{margin:0 0 18px;border:1px solid #d8dee8;border-radius:12px;background:#fff;box-shadow:0 5px 16px rgba(16,24,40,.05);overflow:hidden}
+.player-instructions summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 17px;cursor:pointer;list-style:none;font-weight:900}
+.player-instructions summary::-webkit-details-marker{display:none}.player-instructions summary span:before{content:"＋";display:inline-block;width:22px;color:#9a7425}.player-instructions[open] summary span:before{content:"−"}
+.player-instructions summary small{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.player-instructions-body{border-top:1px solid #e5e9ef;padding:15px 20px 17px}.player-instructions-body ol{margin:0;padding-left:22px}.player-instructions-body li{margin:0 0 9px;line-height:1.45}
+.instruction-note{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:#f7f9fc;font-size:13px}
+@media(max-width:600px){.player-instructions summary{padding:13px 14px}.player-instructions summary small{display:none}.player-instructions-body{padding:14px 16px 16px}}
