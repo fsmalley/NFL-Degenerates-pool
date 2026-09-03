@@ -656,3 +656,97 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
   margin:-3px 0 10px;padding:8px 9px;border-radius:7px;background:#fff9e6;
   color:#66531c;font-size:11px;font-weight:750;line-height:1.35
 }
+
+
+/* V2.13 — Individual Member Accounts */
+.account-login-card h2{margin:8px 0 4px;font-size:30px}
+.member-account-login-form{display:grid;gap:12px;margin-top:18px}
+.member-account-login-form label{display:grid;gap:6px;text-align:left}
+.member-account-login-form label span{font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.member-account-login-form input{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid rgba(255,255,255,.25);border-radius:9px;background:rgba(255,255,255,.09);color:#fff;font:inherit}
+.member-account-login-form input::placeholder{color:rgba(255,255,255,.52)}
+.member-account-login-form small{font-size:11px;color:rgba(255,255,255,.67)}
+.member-login-button{width:100%;margin-top:3px}
+.account-bootstrap-note,.password-required-note{margin:14px 0;padding:12px 13px;border:1px solid rgba(232,192,72,.6);border-radius:9px;background:rgba(218,171,31,.12);text-align:left}
+.account-bootstrap-note strong,.account-bootstrap-note span{display:block}
+.account-bootstrap-note span{margin-top:5px;font-size:12px;line-height:1.4}
+.account-bootstrap-note a,.account-login-links a{display:inline-block;margin-top:8px;color:#f5cf63;font-size:12px;font-weight:900}
+.password-required-note{font-size:12px;line-height:1.4}
+.account-login-links{text-align:center}
+.member-identity-readonly{background:#f1f4f7!important;color:#394653!important;font-weight:850}
+.forum-verified-author{margin-bottom:12px;padding:9px 11px;border-radius:8px;background:#eef7f0;border:1px solid #cfe3d2;font-size:12px}
+.forum-verified-author strong{font-size:13px}
+.forum-verified-author span{margin-left:7px;color:#2f7550;font-weight:900}
+.forum-form-grid-account{grid-template-columns:1fr}
+.my-pools-card{margin:16px 0}
+.my-pools-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+.my-pool-tile{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid #dfe5ec;border-radius:11px;background:#fbfcfd;color:inherit;text-decoration:none}
+.my-pool-tile:hover{background:#f5f8fb}
+.my-pool-label{font-size:11px;font-weight:950;letter-spacing:.03em;color:#495663}
+.my-pool-label em{font-style:normal;padding:2px 5px;border-radius:5px;background:#fff0b5;color:#75570a;font-size:9px}
+.my-pool-tile strong{font-size:18px}
+.my-pool-tile small{color:#69747f;line-height:1.35}
+.account-profile-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}
+.account-profile-card{display:flex;flex-direction:column;gap:5px;margin:0}
+.account-profile-card span{font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#66717c}
+.account-profile-card strong{font-size:17px}
+.account-links-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.account-links-grid>div{display:flex;flex-direction:column;gap:6px;padding:13px;border:1px solid #e0e5eb;border-radius:10px;background:#fafbfd}
+.account-links-grid span{font-size:11px;font-weight:900;text-transform:uppercase;color:#64707b}
+.account-links-grid small{color:#85670d;line-height:1.35}
+.account-actions{display:flex;gap:10px;flex-wrap:wrap}
+.button-link{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.access-denied-wrap{max-width:560px;margin:70px auto;padding:20px}
+.access-denied-card{text-align:center;padding:34px}
+.access-denied-card .button-link{margin-top:10px}
+.member-admin-auth{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+.member-admin-auth label{display:flex;flex-direction:column;gap:6px;min-width:260px;font-size:12px;font-weight:900}
+.member-admin-auth input,.member-create-grid input,.member-create-grid select,.member-admin-edit-grid input,.member-admin-edit-grid select,.member-admin-actions input{
+  box-sizing:border-box;padding:10px 11px;border:1px solid #cfd6df;border-radius:8px;background:#fff;font:inherit
+}
+.member-create-panel{margin-top:16px;padding-top:14px;border-top:1px solid #e1e6ec}
+.member-create-panel h3,.member-list-head h3{margin:0 0 10px}
+.member-create-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end}
+.member-create-grid label,.member-admin-edit-grid label{display:flex;flex-direction:column;gap:5px;font-size:11px;font-weight:900}
+.member-active-check{flex-direction:row!important;align-items:center!important;align-self:center}
+.member-active-check input{width:auto!important}
+.member-list-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:16px;border-top:1px solid #e1e6ec}
+.member-list-head span{font-size:12px;color:#66717c;font-weight:800}
+.member-account-list{display:grid;gap:12px}
+.member-admin-card{padding:14px;border:1px solid #dce3ea;border-radius:11px;background:#fafbfd}
+.member-admin-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.member-admin-card-head strong,.member-admin-card-head span{display:block}
+.member-admin-card-head>div>span{margin-top:3px;font-size:11px;color:#69747f}
+.member-account-state{padding:5px 7px;border-radius:7px;font-size:9px;font-weight:950;letter-spacing:.08em}
+.member-account-state.active{background:#e6f4ea;color:#23623f}
+.member-account-state.inactive{background:#f3e8e8;color:#873939}
+.member-admin-edit-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:13px}
+.member-admin-meta{display:flex;gap:15px;flex-wrap:wrap;margin-top:11px;font-size:11px;color:#68737f}
+.member-admin-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.member-admin-actions input{min-width:220px}
+@media(max-width:980px){
+  .my-pools-grid,.account-links-grid,.account-profile-grid{grid-template-columns:1fr 1fr}
+  .member-create-grid{grid-template-columns:1fr 1fr}
+  .member-admin-edit-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:650px){
+  .my-pools-grid,.account-links-grid,.account-profile-grid,.member-create-grid,.member-admin-edit-grid{grid-template-columns:1fr}
+  .member-admin-auth label{min-width:0;width:100%}
+}
+
+.temp-password-row{display:flex;gap:6px}
+.temp-password-row input{min-width:0;flex:1}
+.temp-password-row button{white-space:nowrap;padding:9px 10px}
+.member-bulk-panel{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:14px;padding:14px;border:1px dashed #cbd5df;border-radius:10px;background:#f8fafc}
+.member-bulk-panel h3{margin:0 0 5px}
+.member-bulk-panel p{margin:0;max-width:760px;color:#626e79;font-size:12px;line-height:1.45}
+.bulk-credentials{margin-top:12px;padding:13px;border:1px solid #d9c470;border-radius:10px;background:#fff9df}
+.bulk-credentials-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}
+.bulk-credentials-head strong,.bulk-credentials-head span{display:block}
+.bulk-credentials-head span{margin-top:3px;font-size:11px;color:#6c613c}
+@media(max-width:650px){
+  .member-bulk-panel,.bulk-credentials-head{align-items:stretch;flex-direction:column}
+  .temp-password-row{flex-direction:column}
+}
+
+.verified-author-mark{display:inline-block;margin-left:5px;color:#2d7a50;font-size:10px;vertical-align:middle}

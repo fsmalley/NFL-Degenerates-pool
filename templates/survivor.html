@@ -49,8 +49,9 @@
       </div>
     </div>
 
-    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
       <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -66,7 +67,7 @@
     <a class="button-link primary" href="/survivor/board">View Season Board</a>
   </div>
 </section>
-<details class="player-instructions"><summary><span>How to Submit Your Pick</span><small>Player instructions</small></summary><div class="player-instructions-body"><ol><li>Select the <strong>NFL week</strong>.</li><li>Enter your <strong>player name</strong>.</li><li>Enter your <strong>Survivor PIN</strong>. On your first submission, use the PIN you want associated with your player name.</li><li>Select <strong>one available NFL team</strong> for that week.</li><li>Review your selection and click <strong>Submit Pick</strong>.</li><li>Confirm the website reports that your pick was saved successfully.</li></ol><p class="instruction-note"><strong>To change a pick:</strong> return before the applicable lock, enter your player information, select the replacement team, and submit again.</p></div></details>
+<details class="player-instructions"><summary><span>How to Submit Your Pick</span><small>Player instructions</small></summary><div class="player-instructions-body"><ol><li>Sign in to your <strong>personal member account</strong>.</li><li>Select the <strong>NFL week</strong>.</li><li>Select <strong>one available NFL team</strong> for that week.</li><li>Review your selection and click <strong>Submit Pick</strong>.</li><li>Confirm the website reports that your pick was saved successfully.</li></ol><p class="instruction-note"><strong>To change a pick:</strong> return before the applicable lock, select the replacement team, and submit again. Your member account identifies you automatically.</p></div></details>
 
 
 <div id="status" class="status hidden"></div>
@@ -78,19 +79,14 @@
       <div>
         <div class="eyebrow dark-eyebrow">PLAYER ENTRY</div>
         <h2>Survivor Pool — Weekly Selection</h2>
-        <p>Your first submission establishes your Survivor PIN. Future changes require the same PIN.</p>
+        <p>Your personal member account identifies your Survivor entry automatically. No separate Survivor PIN is required.</p>
       </div>
     </div>
 
     <form id="pickForm" class="survivor-form">
       <label>
-        <span>Player Name</span>
-        <input id="playerName" maxlength="80" autocomplete="name" placeholder="Enter your name" required>
-      </label>
-
-      <label>
-        <span>Survivor PIN</span>
-        <input id="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" placeholder="4–12 digits" required>
+        <span>Playing As</span>
+        <input id="playerName" maxlength="80" readonly value="{{session.get('member_display_name','')}}" class="member-identity-readonly">
       </label>
 
       <label>
@@ -111,7 +107,7 @@
       </label>
 
       <button class="primary survivor-submit" type="submit">Lock In Pick</button>
-      <button class="secondary survivor-submit" type="button" id="commissionerBtn">Commissioner Override</button>
+      {% if session.get('member_role') == 'COMMISSIONER' %}<button class="secondary survivor-submit" type="button" id="commissionerBtn">Commissioner Override</button>{% endif %}
     </form>
   </section>
 
@@ -124,7 +120,7 @@
       </div>
     </div>
     <div id="history" class="history-list">
-      <div class="empty-state">Enter a player name to see previous selections.</div>
+      <div class="empty-state">Loading your Survivor history…</div>
     </div>
   </section>
 </div>
@@ -209,39 +205,23 @@ function renderTeamOptions(){
 }
 
 async function loadHistory(){
-  const name=document.getElementById("playerName").value.trim();
   const box=document.getElementById("history");
-
-  if(!name){
-    usedTeams=new Set();
-    box.innerHTML='<div class="empty-state">Enter a player name to see previous selections.</div>';
-    renderTeamOptions();
-    return;
-  }
-
-  const pin=document.getElementById("pin").value.trim();
-  if(pin.length < 4){
-    usedTeams=new Set();
-    box.innerHTML='<div class="empty-state">Enter your player name and Survivor PIN to view your private pick history.</div>';
-    renderTeamOptions();
-    return;
-  }
-
   try{
-    const r=await fetch("/api/survivor/history?player="+encodeURIComponent(name)+"&pin="+encodeURIComponent(pin));
+    const r=await fetch("/api/survivor/history");
     const d=await r.json();
     if(!r.ok){
       usedTeams=new Set();
       renderTeamOptions();
-      box.innerHTML='<div class="empty-state">'+escHtml(d.error || "Could not verify Survivor PIN.")+'</div>';
+      box.innerHTML='<div class="empty-state">'+escHtml(d.error || "Could not load your Survivor history.")+'</div>';
       return;
     }
+    if(d.player_name) document.getElementById("playerName").value=d.player_name;
     const history=d.history || [];
     usedTeams=new Set(d.used_teams || []);
     renderTeamOptions();
 
     if(!history.length){
-      box.innerHTML='<div class="empty-state">No previous Survivor picks found. Your first pick will establish your PIN.</div>';
+      box.innerHTML='<div class="empty-state">No previous Survivor picks found for your account.</div>';
       return;
     }
 
@@ -255,19 +235,10 @@ async function loadHistory(){
       </div>
     `).join("");
   }catch(e){
-    box.innerHTML='<div class="empty-state">Could not load pick history.</div>';
+    box.innerHTML='<div class="empty-state">Could not load your Survivor history.</div>';
   }
 }
 
-let historyTimer;
-document.getElementById("playerName").addEventListener("input",()=>{
-  clearTimeout(historyTimer);
-  historyTimer=setTimeout(loadHistory,350);
-});
-document.getElementById("pin").addEventListener("input",()=>{
-  clearTimeout(historyTimer);
-  historyTimer=setTimeout(loadHistory,350);
-});
 document.getElementById("week").addEventListener("change",()=>{
   loadWeekTeams();
   loadHistory();
@@ -277,8 +248,6 @@ document.getElementById("pickForm").addEventListener("submit",async(e)=>{
   e.preventDefault();
 
   const payload={
-    player_name:document.getElementById("playerName").value.trim(),
-    pin:document.getElementById("pin").value.trim(),
     week:Number(document.getElementById("week").value),
     team:document.getElementById("team").value
   };
@@ -307,7 +276,7 @@ document.getElementById("pickForm").addEventListener("submit",async(e)=>{
   }
 });
 
-document.getElementById("commissionerBtn").addEventListener("click",async()=>{
+document.getElementById("commissionerBtn")?.addEventListener("click",async()=>{
   const player_name=document.getElementById("playerName").value.trim();
   const week=Number(document.getElementById("week").value);
   const team=document.getElementById("team").value;
@@ -335,6 +304,7 @@ document.getElementById("commissionerBtn").addEventListener("click",async()=>{
 });
 
 loadWeekTeams();
+loadHistory();
 </script>
 </body>
 </html>

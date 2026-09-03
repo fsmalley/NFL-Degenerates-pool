@@ -50,7 +50,8 @@
     </div>
 
     <a class="nav-direct" href="/forum">FORUM</a>
-    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -59,8 +60,8 @@
 <section class="hero dashboard-hero">
   <div>
     <div class="eyebrow">{{season}} MEMBER HOME</div>
-    <h1>NFL Degenerates Dashboard</h1>
-    <p>Your quick look at this week's pools, standings, deadlines, games, and Pool Talk.</p>
+    <h1>Welcome, <span id="memberWelcome">{{session.get("member_display_name","Member")}}</span></h1>
+    <p>Your personal NFL Degenerates dashboard — picks, standings, deadlines, games, and Pool Talk.</p>
   </div>
   <div class="dashboard-week-badge">
     <span>CURRENT</span>
@@ -71,6 +72,30 @@
 <section id="announcement" class="dashboard-announcement hidden">
   <div class="dashboard-announcement-icon">📢</div>
   <div><div class="eyebrow dark-eyebrow">COMMISSIONER ANNOUNCEMENT</div><p id="announcementText"></p></div>
+</section>
+
+<section class="card my-pools-card">
+  <div class="section-head">
+    <div><div class="eyebrow dark-eyebrow">MY POOLS</div><h2>Your Week at a Glance</h2><p>Your account is automatically connected to your pool entries.</p></div>
+    <a class="text-link" href="/account">My Account →</a>
+  </div>
+  <div class="my-pools-grid">
+    <a href="/draft" class="my-pool-tile">
+      <span class="my-pool-label">🏆 Draft Team Pool</span>
+      <strong id="myDraftStatus">Loading…</strong>
+      <small id="myDraftDetail">Checking your roster connection.</small>
+    </a>
+    <a href="/survivor" class="my-pool-tile">
+      <span class="my-pool-label">☠️ Survivor Pool</span>
+      <strong id="mySurvivorStatus">Loading…</strong>
+      <small id="mySurvivorDetail">Checking your Week status.</small>
+    </a>
+    <a href="/confidence" class="my-pool-tile">
+      <span class="my-pool-label">🎯 Confidence Pool <em>TESTING</em></span>
+      <strong id="myConfidenceStatus">Loading…</strong>
+      <small id="myConfidenceDetail">Official picks remain on Football Frenzy.</small>
+    </a>
+  </div>
 </section>
 
 <section class="dashboard-grid">
@@ -143,7 +168,29 @@ async function loadDashboard(){
     if(!r.ok)throw new Error(d.error||"Dashboard could not be loaded.");
 
     document.getElementById("weekBadge").textContent=`Week ${d.week}`;
+    if(d.member?.display_name) document.getElementById("memberWelcome").textContent=d.member.display_name;
     document.getElementById("allGamesLink").href=`/results?week=${d.week}`;
+
+    const mine=d.my_pools||{};
+    const md=mine.draft||{};
+    document.getElementById("myDraftStatus").textContent=md.linked
+      ? `#${md.rank||"—"} · ${score(md.total_points)} pts`
+      : "Not linked";
+    document.getElementById("myDraftDetail").textContent=md.linked
+      ? `${(md.teams||[]).length} teams connected to ${md.player_name||"your Draft entry"}`
+      : "Ask the Commissioner to connect your Draft entry.";
+
+    const ms=mine.survivor||{};
+    document.getElementById("mySurvivorStatus").textContent=ms.status||"No pick submitted";
+    document.getElementById("mySurvivorDetail").textContent=ms.pick
+      ? `Week ${d.week}: ${ms.pick}`
+      : `Week ${d.week}: no selection saved`;
+
+    const mc=mine.confidence||{};
+    document.getElementById("myConfidenceStatus").textContent=mc.status||"No test entry submitted";
+    document.getElementById("myConfidenceDetail").textContent=mc.entry_submitted
+      ? `${mc.pick_count||0} test picks saved · Official entry still goes to Football Frenzy`
+      : "Testing only — official picks remain on Football Frenzy.";
     document.getElementById("gamesSubhead").textContent=`Week ${d.week} — next scheduled games.`;
 
     if(d.announcement?.enabled && d.announcement?.message){

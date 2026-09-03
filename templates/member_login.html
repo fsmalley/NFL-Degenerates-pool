@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Member Sign In — NFL Degenerates</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="member-login-page">
+<div class="football-bg" aria-hidden="true"><div class="field-perspective"></div></div>
+<main class="member-login-shell">
+  <section class="member-login-card account-login-card">
+    <div class="login-football">🏈</div>
+    <div class="eyebrow">2026 MEMBER ACCOUNT</div>
+    <h1>NFL<br>DEGENERATES</h1>
+    <p class="login-subtitle">Sign in to your personal pool account.</p>
+
+    {% if error %}<div class="login-error">{{error}}</div>{% endif %}
+
+    {% if not accounts_exist %}
+    <div class="account-bootstrap-note">
+      <strong>Commissioner Setup Required</strong>
+      <span>No individual member accounts have been created yet. The Commissioner can use the Test Lab to create the first Commissioner account.</span>
+      <a href="/test-lab">Open Commissioner Test Lab</a>
+    </div>
+    {% endif %}
+
+    <form method="post" class="member-account-login-form">
+      <label><span>Member Name / Username</span><input name="username" maxlength="80" autocomplete="username" required autofocus placeholder="Your username"></label>
+      <label><span>Password</span><input name="password" type="password" maxlength="100" autocomplete="current-password" required placeholder="Your password"></label>
+      <button class="primary member-login-button" type="submit">SIGN IN</button>
+    </form>
+
+    <p class="login-help">First time logging in? Use the temporary password provided by the Commissioner. You will be required to choose your own password.</p>
+    <div class="account-login-links"><a href="/logout">Exit Private Site</a></div>
+  </section>
+</main>
+</body>
+</html>

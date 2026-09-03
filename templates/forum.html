@@ -47,8 +47,9 @@
       </div>
     </div>
 
-    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
       <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -62,8 +63,8 @@
 
 <section class="card forum-new-topic">
   <div class="section-head"><div><div class="eyebrow dark-eyebrow">NEW DISCUSSION</div><h2>Start a Topic</h2></div></div>
-  <div class="forum-form-grid">
-    <label><span>Display Name</span><input id="author" maxlength="60" placeholder="Your pool name"></label>
+  <div class="forum-verified-author">Posting as <strong>{{session.get('member_display_name','Member')}}</strong> <span>✓ Verified member</span></div>
+  <div class="forum-form-grid forum-form-grid-account">
     <label class="forum-title-field"><span>Topic Title</span><input id="title" maxlength="120" placeholder="What do you want to discuss?"></label>
   </div>
   <label class="forum-message-field"><span>Message</span><textarea id="message" maxlength="4000" rows="5" placeholder="Write your message…"></textarea></label>
@@ -75,7 +76,7 @@
   <div id="topics" class="forum-topic-list"><div class="forum-empty">Loading forum…</div></div>
 </section>
 
-<section class="card forum-admin-card">
+<section class="card forum-admin-card {% if session.get('member_role') != 'COMMISSIONER' %}hidden{% endif %}">
   <details>
     <summary>Commissioner Forum Controls</summary>
     <div class="forum-admin-controls">
@@ -98,7 +99,7 @@ function render(){
   $("topics").innerHTML=topics.map(t=>`<article class="forum-topic-card">
     <a class="forum-topic-main" href="/forum/topic/${t.id}">
       <div><h3>${esc(t.title)}</h3><p>${esc(t.message)}</p></div>
-      <div class="forum-topic-meta"><span>Started by <strong>${esc(t.author)}</strong></span><span>${t.reply_count||0} replies</span><span>Last activity ${esc(fmtDate(t.last_activity))}</span></div>
+      <div class="forum-topic-meta"><span>Started by <strong>${esc(t.author)}</strong>${t.member_account_id?'<b class="verified-author-mark" title="Verified member">✓</b>':""}</span><span>${t.reply_count||0} replies</span><span>Last activity ${esc(fmtDate(t.last_activity))}</span></div>
     </a>
     ${moderation?`<button class="forum-delete" onclick="deleteTopic(${t.id})">Delete Topic</button>`:""}
   </article>`).join("");
@@ -109,10 +110,10 @@ async function loadTopics(){
   topics=d.topics||[];render();
 }
 async function postTopic(){
-  const author=$("author").value.trim(),title=$("title").value.trim(),message=$("message").value.trim();
+  const title=$("title").value.trim(),message=$("message").value.trim();
   $("postTopic").disabled=true;
   try{
-    const r=await fetch("/api/forum/topics",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({author,title,message})});
+    const r=await fetch("/api/forum/topics",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title,message})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not post topic.");
     $("title").value="";$("message").value="";$("charCount").textContent="0 / 4000";showStatus("✓ Topic posted.","ok");await loadTopics();
   }catch(e){showStatus(e.message,"error");}finally{$("postTopic").disabled=false;}

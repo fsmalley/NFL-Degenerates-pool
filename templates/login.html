@@ -19,7 +19,7 @@
   <main class="member-login-shell">
     <section class="member-login-card">
       <div class="login-football-mark" aria-hidden="true">🏈</div>
-      <div class="login-kicker">{{season}} MEMBER ACCESS</div>
+      <div class="login-kicker">{{season}} PRIVATE SITE ACCESS</div>
       <h1>NFL Degenerates</h1>
       <p class="login-subtitle">Private pool access for members.</p>
 
@@ -29,12 +29,12 @@
 
       <form method="post" action="/login" class="member-login-form">
         <input type="hidden" name="next" value="{{next_path}}">
-        <label for="password">Member Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" autofocus required placeholder="Enter member password">
+        <label for="password">Site Access Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" autofocus required placeholder="Enter site access password">
         <button type="submit">ENTER THE POOL</button>
       </form>
 
-      <p class="login-help">Contact the pool commissioner if you need the current member password.</p>
+      <p class="login-help">Contact the pool commissioner if you need the current site access password.</p>
 
       <div class="login-meta">
         <span><strong>Visitor Count:</strong> {{visitor_count}}</span>

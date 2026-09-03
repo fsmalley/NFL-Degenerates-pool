@@ -654,8 +654,8 @@ def survivor_board_data():
     return rows
 
 
-def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
-    player_key = " ".join(player_name.lower().split())
+def save_survivor_pick(player_name, week, team, pin=None, admin_override=False, account_authenticated=False, player_key_override=None):
+    player_key = str(player_key_override or " ".join(player_name.lower().split())).strip()
     now = dt.datetime.now(dt.timezone.utc).isoformat()
 
     # Server-side validation prevents direct API submissions for a bye-week team.
@@ -670,22 +670,35 @@ def save_survivor_pick(player_name, week, team, pin=None, admin_override=False):
         raise ValueError(f"{TEAMS.get(team, team)} does not have a scheduled game in Week {week}.")
 
     if not admin_override:
-        if not pin or not pin.isdigit() or not (4 <= len(pin) <= 12):
-            raise ValueError("Enter your 4–12 digit Survivor PIN.")
-
         player = get_survivor_player(player_key)
-        if player:
-            if not verify_survivor_pin(pin, player.get("pin_hash")):
-                raise PermissionError("Incorrect Survivor PIN.")
+        if account_authenticated:
+            # Individual member-account authentication replaces the legacy
+            # Survivor PIN prompt. Preserve a non-usable hash on newly-created
+            # compatibility rows because the legacy column is NOT NULL.
+            if not player:
+                sb_upsert("survivor_players", [{
+                    "season": SEASON,
+                    "player_key": player_key,
+                    "player_name": player_name,
+                    "pin_hash": hash_survivor_pin(secrets.token_urlsafe(24)),
+                    "created_at": now,
+                    "updated_at": now
+                }], "season,player_key")
         else:
-            sb_upsert("survivor_players", [{
-                "season": SEASON,
-                "player_key": player_key,
-                "player_name": player_name,
-                "pin_hash": hash_survivor_pin(pin),
-                "created_at": now,
-                "updated_at": now
-            }], "season,player_key")
+            if not pin or not pin.isdigit() or not (4 <= len(pin) <= 12):
+                raise ValueError("Enter your 4–12 digit Survivor PIN.")
+            if player:
+                if not verify_survivor_pin(pin, player.get("pin_hash")):
+                    raise PermissionError("Incorrect Survivor PIN.")
+            else:
+                sb_upsert("survivor_players", [{
+                    "season": SEASON,
+                    "player_key": player_key,
+                    "player_name": player_name,
+                    "pin_hash": hash_survivor_pin(pin),
+                    "created_at": now,
+                    "updated_at": now
+                }], "season,player_key")
 
     if not admin_override:
         deadline_passed, deadline = survivor_week_deadline_passed(week)
@@ -841,6 +854,14 @@ def survivor_player_history(player_key):
 # -----------------------------
 
 PUBLIC_ENDPOINTS = {"member_login", "health", "static"}
+ACCOUNT_GATE_ENDPOINTS = {
+    "member_account_login",
+    "member_account_logout",
+    "member_password_change",
+    "api_member_password_change",
+    "test_lab"
+}
+
 
 def get_member_password_hash():
     """Return the stored site-member password hash, if configured."""
@@ -854,7 +875,6 @@ def get_member_password_hash():
     except Exception as e:
         print(f"SITE PASSWORD READ WARNING: {type(e).__name__}: {e}", flush=True)
     return ""
-
 
 
 def get_site_setting(key, default=""):
@@ -886,7 +906,7 @@ def site_branding():
 
 
 def increment_visitor_count():
-    """Count successful member logins, not page refreshes."""
+    """Count successful site-gate logins, not page refreshes."""
     branding = site_branding()
     new_count = int(branding["visitor_count"]) + 1
     sb_upsert(
@@ -909,31 +929,150 @@ def verify_member_password(password):
         except Exception:
             return False
 
-    # Bootstrap/recovery behavior: until a separate member password is saved,
-    # the commissioner password grants access. SITE_PASSWORD may optionally
-    # be supplied as an alternate bootstrap password.
     bootstrap = os.getenv("SITE_PASSWORD", "") or ADMIN_PASSWORD
     return bool(bootstrap) and hmac.compare_digest(str(password or ""), bootstrap)
+
+
+# -----------------------------
+# Individual Member Accounts (V2.13)
+# -----------------------------
+
+def member_username_key(value):
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def member_accounts_exist():
+    try:
+        rows = sb_get("member_accounts", {"select":"id","limit":"1"})
+        return bool(rows)
+    except Exception:
+        return False
+
+
+def get_member_account_by_username(username):
+    key = member_username_key(username)
+    if not key:
+        return None
+    rows = sb_get(
+        "member_accounts",
+        {"select":"*","username_key":f"eq.{key}","limit":"1"}
+    )
+    return rows[0] if rows else None
+
+
+def get_member_account_by_id(account_id):
+    try:
+        account_id = int(account_id)
+    except Exception:
+        return None
+    rows = sb_get(
+        "member_accounts",
+        {"select":"*","id":f"eq.{account_id}","limit":"1"}
+    )
+    return rows[0] if rows else None
+
+
+def current_member_account(refresh=False):
+    account_id = session.get("member_account_id")
+    if not account_id:
+        return None
+    if not refresh:
+        return {
+            "id": account_id,
+            "username": session.get("member_username", ""),
+            "display_name": session.get("member_display_name", ""),
+            "role": session.get("member_role", "MEMBER"),
+            "draft_player_id": session.get("draft_player_id"),
+            "survivor_player_key": session.get("survivor_player_key", ""),
+            "confidence_player_key": session.get("confidence_player_key", ""),
+            "must_change_password": bool(session.get("must_change_password"))
+        }
+    try:
+        return get_member_account_by_id(account_id)
+    except Exception:
+        return None
+
+
+def set_member_account_session(account):
+    session["account_authenticated"] = True
+    session["member_account_id"] = int(account["id"])
+    session["member_username"] = str(account.get("username") or "")
+    session["member_display_name"] = str(account.get("display_name") or "")
+    session["member_role"] = str(account.get("role") or "MEMBER").upper()
+    session["draft_player_id"] = account.get("draft_player_id")
+    session["survivor_player_key"] = str(account.get("survivor_player_key") or "")
+    session["confidence_player_key"] = str(account.get("confidence_player_key") or "")
+    session["must_change_password"] = bool(account.get("must_change_password"))
+
+
+def clear_individual_member_session():
+    for key in (
+        "account_authenticated","member_account_id","member_username",
+        "member_display_name","member_role","draft_player_id",
+        "survivor_player_key","confidence_player_key","must_change_password"
+    ):
+        session.pop(key, None)
+
+
+def member_pool_identity(pool_name):
+    account = current_member_account()
+    if not account:
+        return None, None
+    display_name = str(account.get("display_name") or "").strip()
+    if pool_name == "survivor":
+        key = str(account.get("survivor_player_key") or "").strip() or member_username_key(display_name)
+        return display_name, key
+    if pool_name == "confidence":
+        key = str(account.get("confidence_player_key") or "").strip() or confidence_player_key(display_name)
+        return display_name, key
+    return display_name, None
+
+
+def require_commissioner_account():
+    return session.get("member_role") == "COMMISSIONER" and session.get("account_authenticated") is True
 
 
 @app.before_request
 def require_member_login():
     endpoint = request.endpoint or ""
+
     if endpoint in PUBLIC_ENDPOINTS or endpoint.startswith("static"):
         return None
-    if session.get("member_authenticated") is True:
+
+    # First gate: shared private-site password.
+    if session.get("member_authenticated") is not True:
+        if request.path.startswith("/api/"):
+            return jsonify({"ok":False,"error":"Site access password required."}), 401
+        return redirect(url_for("member_login", next=request.full_path if request.query_string else request.path))
+
+    # Commissioner setup/recovery remains available after the shared gate.
+    # Every modifying /api/admin action still validates ADMIN_PASSWORD.
+    if endpoint in ACCOUNT_GATE_ENDPOINTS or request.path.startswith("/api/admin/"):
         return None
 
-    if request.path.startswith("/api/"):
-        return jsonify({"ok":False,"error":"Member login required."}), 401
+    # Second gate: personal account.
+    if session.get("account_authenticated") is not True:
+        if request.path.startswith("/api/"):
+            return jsonify({"ok":False,"error":"Individual member sign-in required."}), 401
+        return redirect(url_for("member_account_login", next=request.full_path if request.query_string else request.path))
 
-    return redirect(url_for("member_login", next=request.full_path if request.query_string else request.path))
+    # First-time temporary passwords must be replaced before pool access.
+    if session.get("must_change_password") is True and endpoint not in {
+        "member_password_change","api_member_password_change","member_account_logout","member_logout"
+    }:
+        if request.path.startswith("/api/"):
+            return jsonify({"ok":False,"error":"Password change required before continuing."}), 403
+        return redirect(url_for("member_password_change"))
+
+    return None
 
 
 @app.route("/login", methods=["GET","POST"])
 def member_login():
     if session.get("member_authenticated") is True and request.method == "GET":
-        return redirect(url_for("index"))
+        if session.get("account_authenticated") is True:
+            return redirect(url_for("index"))
+        return redirect(url_for("member_account_login"))
 
     error = ""
     if request.method == "POST":
@@ -948,9 +1087,9 @@ def member_login():
             session.permanent = True
             requested_next = str(request.form.get("next") or "").strip()
             if requested_next.startswith("/") and not requested_next.startswith("//"):
-                return redirect(requested_next)
-            return redirect(url_for("index"))
-        error = "Incorrect member password."
+                session["post_account_next"] = requested_next
+            return redirect(url_for("member_account_login"))
+        error = "Incorrect site access password."
 
     branding = site_branding()
     return render_template(
@@ -962,6 +1101,132 @@ def member_login():
         site_date=branding["site_date"],
         visitor_count=branding["visitor_count"]
     )
+
+
+@app.route("/member-login", methods=["GET","POST"])
+def member_account_login():
+    if session.get("account_authenticated") is True and request.method == "GET":
+        return redirect(url_for("index"))
+
+    error = ""
+    if request.method == "POST":
+        username = str(request.form.get("username") or "").strip()
+        password = str(request.form.get("password") or "")
+        try:
+            account = get_member_account_by_username(username)
+        except Exception as e:
+            print(f"MEMBER ACCOUNT LOGIN ERROR: {type(e).__name__}: {e}", flush=True)
+            account = None
+            error = "Member accounts are not available yet. The Commissioner may need to run the V2.13 Supabase update."
+
+        if not error:
+            if not account or not bool(account.get("active", True)):
+                error = "Incorrect username or password."
+            else:
+                try:
+                    valid = check_password_hash(str(account.get("password_hash") or ""), password)
+                except Exception:
+                    valid = False
+                if not valid:
+                    error = "Incorrect username or password."
+                else:
+                    now = dt.datetime.now(dt.timezone.utc).isoformat()
+                    updated = {**account, "last_login_at":now, "updated_at":now}
+                    sb_upsert("member_accounts", [updated], "id")
+                    set_member_account_session(updated)
+                    if bool(updated.get("must_change_password")):
+                        return redirect(url_for("member_password_change"))
+                    requested_next = str(session.pop("post_account_next", "") or "").strip()
+                    if requested_next.startswith("/") and not requested_next.startswith("//"):
+                        return redirect(requested_next)
+                    return redirect(url_for("index"))
+
+    return render_template(
+        "member_login.html",
+        season=SEASON,
+        error=error,
+        accounts_exist=member_accounts_exist()
+    )
+
+
+@app.route("/member-logout")
+def member_account_logout():
+    clear_individual_member_session()
+    return redirect(url_for("member_account_login"))
+
+
+@app.route("/account/password")
+def member_password_change():
+    if session.get("account_authenticated") is not True:
+        return redirect(url_for("member_account_login"))
+    return render_template(
+        "member_password.html",
+        season=SEASON,
+        first_login=bool(session.get("must_change_password")),
+        display_name=session.get("member_display_name","")
+    )
+
+
+@app.route("/api/member/password", methods=["POST"])
+def api_member_password_change():
+    if session.get("account_authenticated") is not True:
+        return jsonify({"ok":False,"error":"Member sign-in required."}),401
+    payload = request.get_json(silent=True) or {}
+    current_password = str(payload.get("current_password") or "")
+    new_password = str(payload.get("new_password") or "")
+    confirm_password = str(payload.get("confirm_password") or "")
+    if len(new_password) < 8:
+        return jsonify({"ok":False,"error":"New password must be at least 8 characters."}),400
+    if len(new_password) > 100:
+        return jsonify({"ok":False,"error":"New password is too long."}),400
+    if new_password != confirm_password:
+        return jsonify({"ok":False,"error":"The new passwords do not match."}),400
+
+    account = get_member_account_by_id(session.get("member_account_id"))
+    if not account:
+        return jsonify({"ok":False,"error":"Member account could not be found."}),404
+    try:
+        if not check_password_hash(str(account.get("password_hash") or ""), current_password):
+            return jsonify({"ok":False,"error":"Current password is incorrect."}),403
+    except Exception:
+        return jsonify({"ok":False,"error":"Current password is incorrect."}),403
+
+    account["password_hash"] = generate_password_hash(new_password)
+    account["must_change_password"] = False
+    account["updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    sb_upsert("member_accounts", [account], "id")
+    set_member_account_session(account)
+    return jsonify({"ok":True,"message":"Password changed successfully."})
+
+
+@app.route("/account")
+def member_account_page():
+    account = current_member_account(refresh=True)
+    if not account:
+        return redirect(url_for("member_account_login"))
+    set_member_account_session(account)
+    return render_template("account.html", season=SEASON, account=account)
+
+
+@app.route("/api/member/me")
+def api_member_me():
+    account = current_member_account(refresh=True)
+    if not account:
+        return jsonify({"ok":False,"error":"Member account not found."}),404
+    set_member_account_session(account)
+    return jsonify({
+        "ok":True,
+        "member":{
+            "id":account.get("id"),
+            "username":account.get("username"),
+            "display_name":account.get("display_name"),
+            "role":account.get("role"),
+            "draft_player_id":account.get("draft_player_id"),
+            "survivor_player_key":account.get("survivor_player_key"),
+            "confidence_player_key":account.get("confidence_player_key"),
+            "must_change_password":bool(account.get("must_change_password"))
+        }
+    })
 
 
 @app.route("/logout")
@@ -979,9 +1244,9 @@ def api_admin_site_password():
     new_password = str(payload.get("new_password") or "")
     confirm_password = str(payload.get("confirm_password") or "")
     if len(new_password) < 6:
-        return jsonify({"ok":False,"error":"Member password must be at least 6 characters."}), 400
+        return jsonify({"ok":False,"error":"Shared site access password must be at least 6 characters."}), 400
     if len(new_password) > 100:
-        return jsonify({"ok":False,"error":"Member password is too long."}), 400
+        return jsonify({"ok":False,"error":"Shared site access password is too long."}), 400
     if new_password != confirm_password:
         return jsonify({"ok":False,"error":"The new passwords do not match."}), 400
 
@@ -993,7 +1258,7 @@ def api_admin_site_password():
     )
     return jsonify({
         "ok":True,
-        "message":"Member site password updated successfully. Existing signed-in members will remain signed in until they log out or their session expires."
+        "message":"Shared site access password updated successfully. Existing signed-in members will remain signed in until they log out or their session expires."
     })
 
 
@@ -1033,6 +1298,346 @@ def api_admin_site_branding():
         "message":"Landing-page footer updated.",
         **site_branding()
     })
+
+
+
+# -----------------------------
+# Commissioner Member Management (V2.13)
+# -----------------------------
+
+def admin_password_ok(payload=None):
+    payload = payload or {}
+    supplied = (
+        request.headers.get("X-Admin-Password", "")
+        or str(payload.get("password") or "")
+        or str(request.args.get("password") or "")
+    )
+    return bool(ADMIN_PASSWORD) and hmac.compare_digest(str(supplied), str(ADMIN_PASSWORD))
+
+
+def safe_member_account(row):
+    return {
+        "id":row.get("id"),
+        "username":row.get("username"),
+        "display_name":row.get("display_name"),
+        "role":row.get("role"),
+        "active":bool(row.get("active", True)),
+        "must_change_password":bool(row.get("must_change_password", False)),
+        "draft_player_id":row.get("draft_player_id"),
+        "survivor_player_key":row.get("survivor_player_key"),
+        "confidence_player_key":row.get("confidence_player_key"),
+        "created_at":row.get("created_at"),
+        "updated_at":row.get("updated_at"),
+        "last_login_at":row.get("last_login_at")
+    }
+
+
+def member_identity_options():
+    try:
+        draft_rows = sb_get(
+            "draft_players",
+            {"select":"id,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+        )
+    except Exception:
+        draft_rows = []
+    try:
+        survivor_rows = sb_get(
+            "survivor_players",
+            {"select":"player_key,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+        )
+    except Exception:
+        survivor_rows = []
+    try:
+        confidence_rows = sb_get(
+            "confidence_players",
+            {"select":"player_key,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+        )
+    except Exception:
+        confidence_rows = []
+    return {
+        "draft":[{"id":r.get("id"),"player_name":r.get("player_name")} for r in draft_rows],
+        "survivor":[{"player_key":r.get("player_key"),"player_name":r.get("player_name")} for r in survivor_rows],
+        "confidence":[{"player_key":r.get("player_key"),"player_name":r.get("player_name")} for r in confidence_rows]
+    }
+
+
+@app.route("/api/admin/members", methods=["GET","POST"])
+def api_admin_members():
+    payload = request.get_json(silent=True) or {}
+    if not admin_password_ok(payload):
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}),403
+
+    if request.method == "GET":
+        try:
+            rows = sb_get("member_accounts", {"select":"*","order":"display_name.asc"})
+            return jsonify({
+                "ok":True,
+                "members":[safe_member_account(r) for r in rows],
+                "identities":member_identity_options()
+            })
+        except Exception as e:
+            print(f"MEMBER ADMIN LOAD ERROR: {type(e).__name__}: {e}", flush=True)
+            return jsonify({
+                "ok":False,
+                "error":"Could not load member accounts. Run the V2.13 Supabase migration first."
+            }),500
+
+    action = str(payload.get("action") or "").strip().lower()
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    if action == "bulk_from_draft":
+        if not member_accounts_exist():
+            return jsonify({
+                "ok":False,
+                "error":"Create the Commissioner account first, then use Bulk Create for Draft players."
+            }),400
+
+        try:
+            draft_rows = sb_get(
+                "draft_players",
+                {"select":"id,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+            )
+            existing = sb_get("member_accounts", {"select":"id,username_key,draft_player_id"})
+        except Exception as e:
+            return jsonify({"ok":False,"error":f"Could not load Draft/member records: {e}"}),500
+
+        linked_ids = {
+            int(r.get("draft_player_id"))
+            for r in existing
+            if r.get("draft_player_id") is not None
+        }
+        used_usernames = {str(r.get("username_key") or "") for r in existing}
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        rows = []
+        credentials = []
+
+        for player in draft_rows:
+            try:
+                draft_id = int(player.get("id"))
+            except Exception:
+                continue
+            if draft_id in linked_ids:
+                continue
+
+            display_name = str(player.get("player_name") or f"Player {draft_id}").strip()
+            username = display_name
+            username_key = member_username_key(username)
+            suffix = 2
+            while username_key in used_usernames:
+                username = f"{display_name} {suffix}"
+                username_key = member_username_key(username)
+                suffix += 1
+            used_usernames.add(username_key)
+
+            random_part = "".join(secrets.choice(alphabet) for _ in range(8))
+            temporary_password = f"NFL-{random_part[:4]}-{random_part[4:]}"
+            rows.append({
+                "username":username,
+                "username_key":username_key,
+                "display_name":display_name,
+                "password_hash":generate_password_hash(temporary_password),
+                "role":"MEMBER",
+                "active":True,
+                "must_change_password":True,
+                "draft_player_id":draft_id,
+                "survivor_player_key":member_username_key(display_name),
+                "confidence_player_key":confidence_player_key(display_name),
+                "created_at":now,
+                "updated_at":now,
+                "last_login_at":None
+            })
+            credentials.append({
+                "display_name":display_name,
+                "username":username,
+                "temporary_password":temporary_password,
+                "draft_player_id":draft_id
+            })
+
+        if not rows:
+            return jsonify({
+                "ok":True,
+                "message":"No unlinked Draft players need member accounts.",
+                "credentials":[]
+            })
+
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/member_accounts",
+            headers=sb_headers({"Prefer":"return=minimal"}),
+            json=rows,
+            timeout=30
+        )
+        r.raise_for_status()
+        return jsonify({
+            "ok":True,
+            "message":f"Created {len(rows)} member accounts from unlinked Draft players.",
+            "credentials":credentials
+        })
+
+    if action == "create":
+        username = str(payload.get("username") or "").strip()
+        display_name = str(payload.get("display_name") or "").strip()
+        temporary_password = str(payload.get("temporary_password") or "")
+        role = str(payload.get("role") or "MEMBER").upper()
+        active = bool(payload.get("active", True))
+
+        # Lockout protection: the very first personal account is always the
+        # Commissioner account, regardless of the form's selected role.
+        try:
+            first_account = not member_accounts_exist()
+        except Exception:
+            first_account = False
+        if first_account:
+            role = "COMMISSIONER"
+            active = True
+
+        if len(username) < 2 or len(username) > 80:
+            return jsonify({"ok":False,"error":"Username must be 2–80 characters."}),400
+        if len(display_name) < 2 or len(display_name) > 80:
+            return jsonify({"ok":False,"error":"Display name must be 2–80 characters."}),400
+        if len(temporary_password) < 8 or len(temporary_password) > 100:
+            return jsonify({"ok":False,"error":"Temporary password must be 8–100 characters."}),400
+        if role not in ("MEMBER","COMMISSIONER"):
+            return jsonify({"ok":False,"error":"Role must be MEMBER or COMMISSIONER."}),400
+
+        username_key = member_username_key(username)
+        try:
+            if get_member_account_by_username(username):
+                return jsonify({"ok":False,"error":"That username is already in use."}),409
+        except Exception as e:
+            return jsonify({"ok":False,"error":f"Could not check username: {e}"}),500
+
+        draft_player_id = payload.get("draft_player_id")
+        try:
+            draft_player_id = int(draft_player_id) if str(draft_player_id or "").strip() else None
+        except Exception:
+            return jsonify({"ok":False,"error":"Draft player assignment is invalid."}),400
+
+        survivor_key = str(payload.get("survivor_player_key") or "").strip() or member_username_key(display_name)
+        confidence_key = str(payload.get("confidence_player_key") or "").strip() or confidence_player_key(display_name)
+
+        row = {
+            "username":username,
+            "username_key":username_key,
+            "display_name":display_name,
+            "password_hash":generate_password_hash(temporary_password),
+            "role":role,
+            "active":active,
+            "must_change_password":True,
+            "draft_player_id":draft_player_id,
+            "survivor_player_key":survivor_key,
+            "confidence_player_key":confidence_key,
+            "created_at":now,
+            "updated_at":now,
+            "last_login_at":None
+        }
+        try:
+            r = requests.post(
+                f"{SUPABASE_URL}/rest/v1/member_accounts",
+                headers=sb_headers({"Prefer":"return=representation"}),
+                json=[row],
+                timeout=20
+            )
+            r.raise_for_status()
+            created = r.json()[0] if r.content else row
+            return jsonify({
+                "ok":True,
+                "message":f"Member account created for {display_name}.",
+                "member":safe_member_account(created)
+            })
+        except requests.HTTPError as e:
+            detail = ""
+            try:
+                detail = (e.response.json() or {}).get("message") or ""
+            except Exception:
+                detail = str(e)
+            return jsonify({"ok":False,"error":"Could not create member account. "+detail}),400
+
+    if action in ("update","reset_password"):
+        try:
+            account_id = int(payload.get("id"))
+        except Exception:
+            return jsonify({"ok":False,"error":"A valid member account is required."}),400
+        account = get_member_account_by_id(account_id)
+        if not account:
+            return jsonify({"ok":False,"error":"Member account not found."}),404
+
+        if action == "reset_password":
+            temporary_password = str(payload.get("temporary_password") or "")
+            if len(temporary_password) < 8 or len(temporary_password) > 100:
+                return jsonify({"ok":False,"error":"Temporary password must be 8–100 characters."}),400
+            account["password_hash"] = generate_password_hash(temporary_password)
+            account["must_change_password"] = True
+            account["updated_at"] = now
+            sb_upsert("member_accounts",[account],"id")
+            return jsonify({
+                "ok":True,
+                "message":f"Temporary password reset for {account.get('display_name')}. They must change it at next sign-in."
+            })
+
+        username = str(payload.get("username") or account.get("username") or "").strip()
+        display_name = str(payload.get("display_name") or account.get("display_name") or "").strip()
+        role = str(payload.get("role") or account.get("role") or "MEMBER").upper()
+        active = bool(payload.get("active", account.get("active", True)))
+        if len(username) < 2 or len(username) > 80 or len(display_name) < 2 or len(display_name) > 80:
+            return jsonify({"ok":False,"error":"Username and display name must be 2–80 characters."}),400
+        if role not in ("MEMBER","COMMISSIONER"):
+            return jsonify({"ok":False,"error":"Role must be MEMBER or COMMISSIONER."}),400
+
+        key = member_username_key(username)
+        duplicates = sb_get(
+            "member_accounts",
+            {"select":"id","username_key":f"eq.{key}","id":f"neq.{account_id}","limit":"1"}
+        )
+        if duplicates:
+            return jsonify({"ok":False,"error":"That username is already in use."}),409
+
+        draft_player_id = payload.get("draft_player_id")
+        try:
+            draft_player_id = int(draft_player_id) if str(draft_player_id or "").strip() else None
+        except Exception:
+            return jsonify({"ok":False,"error":"Draft player assignment is invalid."}),400
+
+        # Prevent accidentally removing the only active Commissioner.
+        if str(account.get("role") or "").upper() == "COMMISSIONER" and bool(account.get("active", True)):
+            if role != "COMMISSIONER" or not active:
+                all_accounts = sb_get("member_accounts", {"select":"id,role,active"})
+                other_active_commissioners = [
+                    r for r in all_accounts
+                    if int(r.get("id") or 0) != account_id
+                    and str(r.get("role") or "").upper() == "COMMISSIONER"
+                    and bool(r.get("active", True))
+                ]
+                if not other_active_commissioners:
+                    return jsonify({
+                        "ok":False,
+                        "error":"This is the only active Commissioner account. Create or promote another Commissioner before changing this account."
+                    }),400
+
+        account.update({
+            "username":username,
+            "username_key":key,
+            "display_name":display_name,
+            "role":role,
+            "active":active,
+            "draft_player_id":draft_player_id,
+            "survivor_player_key":str(payload.get("survivor_player_key") or "").strip() or member_username_key(display_name),
+            "confidence_player_key":str(payload.get("confidence_player_key") or "").strip() or confidence_player_key(display_name),
+            "updated_at":now
+        })
+        sb_upsert("member_accounts",[account],"id")
+
+        # If the commissioner edited their own account, refresh the active session.
+        if int(session.get("member_account_id") or 0) == account_id:
+            set_member_account_session(account)
+
+        return jsonify({
+            "ok":True,
+            "message":f"Member account updated for {display_name}.",
+            "member":safe_member_account(account)
+        })
+
+    return jsonify({"ok":False,"error":"Unknown member-management action."}),400
+
 
 
 
@@ -1101,14 +1706,12 @@ def api_forum_topics():
             return jsonify({"ok":False,"error":"Could not load forum topics.","topics":[]}),500
 
     payload=request.get_json(silent=True) or {}
-    author=str(payload.get("author") or "").strip()
+    author=str(session.get("member_display_name") or "").strip()
     title=str(payload.get("title") or "").strip()
     message=str(payload.get("message") or "").strip()
 
     if not author:
-        return jsonify({"ok":False,"error":"Enter your display name."}),400
-    if len(author)>60:
-        return jsonify({"ok":False,"error":"Display name is too long."}),400
+        return jsonify({"ok":False,"error":"Member account name is unavailable."}),400
     if not title:
         return jsonify({"ok":False,"error":"Enter a topic title."}),400
     if len(title)>120:
@@ -1123,6 +1726,7 @@ def api_forum_topics():
         f"{SUPABASE_URL}/rest/v1/forum_topics",
         headers=sb_headers({"Prefer":"return=representation"}),
         json=[{
+            "member_account_id":session.get("member_account_id"),
             "author":author,
             "title":title,
             "message":message,
@@ -1156,15 +1760,13 @@ def api_forum_topic(topic_id):
 @app.route("/api/forum/topic/<int:topic_id>/reply", methods=["POST"])
 def api_forum_reply(topic_id):
     payload=request.get_json(silent=True) or {}
-    author=str(payload.get("author") or "").strip()
+    author=str(session.get("member_display_name") or "").strip()
     message=str(payload.get("message") or "").strip()
 
     if not forum_topic(topic_id):
         return jsonify({"ok":False,"error":"Forum topic not found."}),404
     if not author:
-        return jsonify({"ok":False,"error":"Enter your display name."}),400
-    if len(author)>60:
-        return jsonify({"ok":False,"error":"Display name is too long."}),400
+        return jsonify({"ok":False,"error":"Member account name is unavailable."}),400
     if not message:
         return jsonify({"ok":False,"error":"Enter a reply."}),400
     if len(message)>4000:
@@ -1175,6 +1777,7 @@ def api_forum_reply(topic_id):
         f"{SUPABASE_URL}/rest/v1/forum_posts",
         headers=sb_headers({"Prefer":"return=representation"}),
         json=[{
+            "member_account_id":session.get("member_account_id"),
             "topic_id":int(topic_id),
             "author":author,
             "message":message,
@@ -1517,22 +2120,22 @@ def api_confidence_week(week):
 
 @app.route("/api/confidence/entry", methods=["GET","POST"])
 def api_confidence_entry():
+    player_name, key = member_pool_identity("confidence")
+    if not player_name or not key:
+        return jsonify({"ok":False,"error":"This account is not linked to a Confidence identity."}),400
+
     if request.method == "GET":
-        player_name=str(request.args.get("player") or "").strip()
-        pin=str(request.args.get("pin") or "").strip()
         week=max(1,min(18,request.args.get("week",1,type=int)))
-        if not player_name or not pin:
-            return jsonify({"ok":False,"error":"Enter your player name and Confidence PIN."}),400
-        key=confidence_player_key(player_name)
-        player=get_confidence_player(key)
-        if not player or not verify_survivor_pin(pin,player.get("pin_hash")):
-            return jsonify({"ok":False,"error":"Incorrect Confidence player name or PIN."}),403
         entry,picks=confidence_entry(key,week)
-        return jsonify({"ok":True,"entry":entry,"picks":picks})
+        return jsonify({
+            "ok":True,
+            "entry":entry,
+            "picks":picks,
+            "player_name":player_name,
+            "testing":True
+        })
 
     payload=request.get_json(silent=True) or {}
-    player_name=str(payload.get("player_name") or "").strip()
-    pin=str(payload.get("pin") or "").strip()
     try:
         week=int(payload.get("week") or 0)
     except Exception:
@@ -1540,10 +2143,6 @@ def api_confidence_entry():
     picks=payload.get("picks") or []
     tiebreaker=payload.get("tiebreaker_total")
 
-    if not player_name or len(player_name)>80:
-        return jsonify({"ok":False,"error":"Enter a valid player name."}),400
-    if not pin.isdigit() or not (4 <= len(pin) <= 12):
-        return jsonify({"ok":False,"error":"Enter a 4–12 digit Confidence PIN."}),400
     if week not in range(1,19):
         return jsonify({"ok":False,"error":"Choose a valid NFL week."}),400
     try:
@@ -1590,18 +2189,14 @@ def api_confidence_entry():
             "error":f"Use every confidence value from 1 through {len(games)} exactly once."
         }),400
 
-    key=confidence_player_key(player_name)
     now=dt.datetime.now(dt.timezone.utc).isoformat()
     player=get_confidence_player(key)
-    if player:
-        if not verify_survivor_pin(pin,player.get("pin_hash")):
-            return jsonify({"ok":False,"error":"Incorrect Confidence PIN."}),403
-    else:
+    if not player:
         sb_upsert("confidence_players",[{
             "season":SEASON,
             "player_key":key,
             "player_name":player_name,
-            "pin_hash":hash_survivor_pin(pin),
+            "pin_hash":hash_survivor_pin(secrets.token_urlsafe(24)),
             "created_at":now,
             "updated_at":now
         }],"season,player_key")
@@ -1629,8 +2224,9 @@ def api_confidence_entry():
 
     return jsonify({
         "ok":True,
-        "message":f"Week {week} Confidence entry saved for {player_name}.",
-        "game_count":len(games)
+        "message":f"Week {week} TEST Confidence entry saved for {player_name}. Official picks must still be submitted through Football Frenzy.",
+        "game_count":len(games),
+        "testing":True
     })
 
 
@@ -1730,10 +2326,24 @@ def dashboard_announcement():
 @app.route("/api/dashboard")
 def api_dashboard():
     week = dashboard_current_week()
+    account = current_member_account(refresh=True) or {}
+    if account:
+        set_member_account_session(account)
+
     data = {
         "ok": True,
         "season": SEASON,
         "week": week,
+        "member": {
+            "display_name": account.get("display_name") or session.get("member_display_name") or "Member",
+            "username": account.get("username") or session.get("member_username") or "",
+            "role": account.get("role") or session.get("member_role") or "MEMBER"
+        },
+        "my_pools": {
+            "draft": {"linked": False},
+            "survivor": {"linked": True, "status":"No pick submitted", "pick":None},
+            "confidence": {"linked": True, "status":"No test entry submitted", "testing":True}
+        },
         "announcement": dashboard_announcement(),
         "draft": {"leaders": [], "player_count": 0},
         "survivor": {"alive": 0, "total": 0},
@@ -1741,6 +2351,10 @@ def api_dashboard():
         "forum": {"topics": []},
         "next_games": []
     }
+
+    draft_players = []
+    board = []
+    standings = []
 
     try:
         draft_players = draft_data()
@@ -1827,6 +2441,62 @@ def api_dashboard():
     except Exception as e:
         data["games_error"] = str(e)
 
+    # Personalized "My Pools" summary.
+    try:
+        draft_id = account.get("draft_player_id")
+        if draft_id is not None:
+            mine = next((p for p in draft_players if int(p.get("id") or 0) == int(draft_id)), None)
+            if mine:
+                data["my_pools"]["draft"] = {
+                    "linked":True,
+                    "player_name":mine.get("player_name"),
+                    "rank":mine.get("rank"),
+                    "total_points":mine.get("total_points",0),
+                    "teams":[mine.get(f"team{n}") for n in range(1,9) if mine.get(f"team{n}")]
+                }
+    except Exception as e:
+        data["my_pools"]["draft"]["error"] = str(e)
+
+    try:
+        survivor_name, survivor_key = member_pool_identity("survivor")
+        history = survivor_player_history(survivor_key) if survivor_key else []
+        current_pick = next((p for p in history if int(p.get("week") or 0) == week), None)
+        eliminated_week = None
+        for p in history:
+            pw = int(p.get("week") or 0)
+            if pw <= 0:
+                continue
+            outcome = survivor_pick_result((p.get("team") or "").upper(), get_week(pw))
+            if outcome.get("status") == "ELIMINATED":
+                eliminated_week = pw if eliminated_week is None else min(eliminated_week, pw)
+        status = f"Eliminated Week {eliminated_week}" if eliminated_week else ("Pick submitted" if current_pick else "No pick submitted")
+        data["my_pools"]["survivor"] = {
+            "linked":True,
+            "player_name":survivor_name,
+            "status":status,
+            "pick":current_pick.get("team") if current_pick else None,
+            "eliminated_week":eliminated_week
+        }
+    except Exception as e:
+        data["my_pools"]["survivor"]["error"] = str(e)
+
+    try:
+        confidence_name, confidence_key = member_pool_identity("confidence")
+        entry, picks = confidence_entry(confidence_key, week) if confidence_key else (None, [])
+        mine = next((p for p in standings if p.get("player_key") == confidence_key), None)
+        data["my_pools"]["confidence"] = {
+            "linked":True,
+            "player_name":confidence_name,
+            "status":"Test entry submitted" if entry else "No test entry submitted",
+            "testing":True,
+            "entry_submitted":bool(entry),
+            "pick_count":len(picks),
+            "rank":mine.get("rank") if mine else None,
+            "total_points":mine.get("total_points",0) if mine else 0
+        }
+    except Exception as e:
+        data["my_pools"]["confidence"]["error"] = str(e)
+
     return jsonify(data)
 
 
@@ -1888,6 +2558,13 @@ def survivor_board():
 
 @app.route("/test-lab")
 def test_lab():
+    # Bootstrap exception: before the first account exists, the shared site
+    # password plus ADMIN_PASSWORD-protected controls can create Commissioner.
+    if member_accounts_exist():
+        if session.get("must_change_password") is True and session.get("account_authenticated") is True:
+            return redirect(url_for("member_password_change"))
+        if not require_commissioner_account():
+            return render_template("member_access_denied.html", season=SEASON), 403
     return render_template("test_lab.html", season=SEASON)
 
 
@@ -1906,7 +2583,8 @@ def health():
         sb_get("site_settings", {"select":"setting_key","limit":"1"})
         sb_get("forum_topics", {"select":"id","limit":"1"})
         sb_get("forum_posts", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login","forum"]}), 200
+        sb_get("member_accounts", {"select":"id","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login","member_accounts","forum"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500
@@ -2071,8 +2749,9 @@ def api_draft_salary_settings():
 @app.route("/api/survivor/pick", methods=["POST"])
 def api_survivor_pick():
     payload = request.get_json(silent=True) or {}
-    player_name = str(payload.get("player_name", "")).strip()
-    pin = str(payload.get("pin", "")).strip()
+    account_name, account_key = member_pool_identity("survivor")
+    player_name = str(account_name or "").strip()
+    pin = ""
     team = str(payload.get("team", "")).strip().upper()
 
     try:
@@ -2090,7 +2769,7 @@ def api_survivor_pick():
         return jsonify({"ok": False, "error": "Choose a valid NFL team."}), 400
 
     try:
-        row = save_survivor_pick(player_name, week, team, pin=pin, admin_override=False)
+        row = save_survivor_pick(player_name, week, team, pin=None, admin_override=False, account_authenticated=True, player_key_override=account_key)
     except PermissionError as e:
         return jsonify({"ok": False, "error": str(e)}), 403
     except ValueError as e:
@@ -2190,20 +2869,9 @@ def api_survivor_admin_delete_pick():
 
 @app.route("/api/survivor/history")
 def api_survivor_history():
-    player_name = str(request.args.get("player", "")).strip()
-    pin = str(request.args.get("pin", "")).strip()
-    if not player_name:
-        return jsonify({"history": [], "used_teams": []})
-
-    player_key = " ".join(player_name.lower().split())
-    player = get_survivor_player(player_key)
-
-    # A brand-new player legitimately has no history yet.
-    if not player:
-        return jsonify({"history": [], "used_teams": [], "new_player": True})
-
-    if not pin or not verify_survivor_pin(pin, player.get("pin_hash")):
-        return jsonify({"history": [], "used_teams": [], "error": "Enter the correct Survivor PIN to view this player's picks."}), 403
+    player_name, player_key = member_pool_identity("survivor")
+    if not player_name or not player_key:
+        return jsonify({"history": [], "used_teams": [], "error":"This account is not linked to a Survivor identity."}),400
 
     rows = survivor_player_history(player_key)
     used = []
@@ -2217,7 +2885,12 @@ def api_survivor_history():
         if team:
             used.append(team)
 
-    return jsonify({"history": rows, "used_teams": used})
+    return jsonify({
+        "history": rows,
+        "used_teams": used,
+        "player_name": player_name,
+        "player_key": player_key
+    })
 
 
 @app.route("/api/survivor/board")
@@ -2744,6 +3417,17 @@ def run_v28_quality_checks():
         f"A perfect 16-game week is worth {sum(confidence_values)} points."
     )
 
+    add(
+        "Member usernames normalize consistently",
+        member_username_key("  Fred   Smalley ") == "fred smalley",
+        "Usernames are case-insensitive and repeated spaces are normalized."
+    )
+    add(
+        "Member roles are restricted",
+        {"MEMBER","COMMISSIONER"} == set(["MEMBER","COMMISSIONER"]),
+        "Only MEMBER and COMMISSIONER roles are supported."
+    )
+
     return {
         "passed": all(c["passed"] for c in checks),
         "checks": checks,
@@ -2769,6 +3453,9 @@ def run_system_diagnostics():
         ("Confidence players table", "confidence_players"),
         ("Confidence entries table", "confidence_entries"),
         ("Confidence picks table", "confidence_picks"),
+        ("Member accounts table", "member_accounts"),
+        ("Forum topics table", "forum_topics"),
+        ("Forum posts table", "forum_posts"),
         ("NFL games table", "games"),
     ]
     for label, table in table_checks:

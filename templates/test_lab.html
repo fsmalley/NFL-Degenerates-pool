@@ -51,6 +51,7 @@
 
     <a class="nav-direct active-nav" href="/test-lab">COMMISSIONER</a>
       <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -85,18 +86,63 @@
   <div class="section-head">
     <div>
       <div class="eyebrow dark-eyebrow">PRIVATE MEMBER ACCESS</div>
-      <h2>Change Member Site Password</h2>
+      <h2>Change Shared Site Access Password</h2>
       <p>Change the shared password members use to enter NFL Degenerates. This does not change the Commissioner password.</p>
     </div>
   </div>
   <div class="member-password-grid">
     <label><span>Commissioner Password</span><input id="siteAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
-    <label><span>New Member Password</span><input id="newSitePassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
-    <label><span>Confirm New Password</span><input id="confirmSitePassword" type="password" autocomplete="new-password" placeholder="Re-enter new password"></label>
+    <label><span>New Shared Access Password</span><input id="newSitePassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"></label>
+    <label><span>Confirm Shared Access Password</span><input id="confirmSitePassword" type="password" autocomplete="new-password" placeholder="Re-enter new password"></label>
     <button class="primary" type="button" onclick="changeMemberPassword()">Change Member Password</button>
   </div>
   <div id="sitePasswordMsg"></div>
   <p class="instruction-note"><strong>Recovery:</strong> if no separate member password has been saved yet, the Commissioner password can be used as the initial member password. After saving a member password here, members use the new password.</p>
+</section>
+
+<section class="card member-account-admin">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">V2.13 MEMBER ACCOUNTS</div>
+      <h2>Manage Individual Members</h2>
+      <p>Create personal logins, connect each person to their pool identities, reset temporary passwords, and activate or deactivate accounts. Passwords are never displayed after they are saved.</p>
+    </div>
+  </div>
+
+  <div class="member-admin-auth">
+    <label><span>Commissioner Password</span><input id="memberAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
+    <button class="secondary" type="button" onclick="loadMembers()">Load / Refresh Members</button>
+  </div>
+  <div id="memberAdminMsg"></div>
+
+  <div class="member-create-panel">
+    <h3>Create Member Account</h3>
+    <div class="member-create-grid">
+      <label><span>Username</span><input id="newMemberUsername" maxlength="80" placeholder="Example: Fred Smalley"></label>
+      <label><span>Display Name</span><input id="newMemberDisplayName" maxlength="80" placeholder="Leaderboard / forum name"></label>
+      <label><span>Temporary Password</span><div class="temp-password-row"><input id="newMemberTempPassword" type="text" maxlength="100" placeholder="At least 8 characters"><button class="ghost" type="button" onclick="generateTempPassword()">Generate</button></div></label>
+      <label><span>Role</span><select id="newMemberRole"><option value="MEMBER">Member</option><option value="COMMISSIONER">Commissioner</option></select></label>
+      <label><span>Draft Pool Identity</span><select id="newMemberDraft"><option value="">Not linked</option></select></label>
+      <label><span>Survivor Identity</span><input id="newMemberSurvivor" list="survivorIdentityList" maxlength="100" placeholder="Blank = use display name"></label>
+      <label><span>Confidence Identity</span><input id="newMemberConfidence" list="confidenceIdentityList" maxlength="100" placeholder="Blank = use display name"></label>
+      <label class="member-active-check"><input id="newMemberActive" type="checkbox" checked> <span>Account active</span></label>
+      <button class="primary" type="button" onclick="createMember()">Create Member</button>
+    </div>
+    <p class="instruction-note"><strong>First login:</strong> the member signs in with the temporary password and is immediately required to create a private password of at least 8 characters.</p>
+    <datalist id="survivorIdentityList"></datalist>
+    <datalist id="confidenceIdentityList"></datalist>
+  </div>
+
+  <div class="member-bulk-panel">
+    <div><h3>Bulk Create from Draft Players</h3><p>Create accounts automatically for every Draft player who is not already linked. Each receives a unique temporary password and is also prepared for Survivor and Confidence using the same display name.</p></div>
+    <button class="secondary" type="button" onclick="bulkCreateDraftMembers()">Create Missing Draft Accounts</button>
+  </div>
+  <div id="bulkCredentials" class="bulk-credentials hidden"></div>
+
+  <div class="member-list-head"><h3>Existing Member Accounts</h3><span id="memberCount">0 members</span></div>
+  <div id="memberAccountList" class="member-account-list">
+    <div class="quality-placeholder">Enter the Commissioner password and click <strong>Load / Refresh Members</strong>.</div>
+  </div>
 </section>
 
 <section class="card landing-branding-admin">
@@ -215,13 +261,153 @@
 </main>
 
 <script>
+let memberAdminState={members:[],identities:{draft:[],survivor:[],confidence:[]}};
+
+function memberEsc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");}
+function memberFmtDate(v){
+  if(!v)return "Never";
+  const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);
+  return new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);
+}
+function memberAdminMessage(text,ok=true){
+  const el=document.getElementById("memberAdminMsg");el.className="test-msg "+(ok?"ok":"error");el.textContent=text;
+}
+function draftIdentityOptions(selected){
+  return '<option value="">Not linked</option>'+(memberAdminState.identities.draft||[]).map(p=>`<option value="${p.id}" ${String(p.id)===String(selected??"")?"selected":""}>${memberEsc(p.player_name)} (#${p.id})</option>`).join("");
+}
+function renderMemberAccounts(){
+  const rows=memberAdminState.members||[];
+  document.getElementById("memberCount").textContent=`${rows.length} member${rows.length===1?"":"s"}`;
+  document.getElementById("newMemberDraft").innerHTML=draftIdentityOptions("");
+  document.getElementById("survivorIdentityList").innerHTML=(memberAdminState.identities.survivor||[]).map(p=>`<option value="${memberEsc(p.player_key)}">${memberEsc(p.player_name)}</option>`).join("");
+  document.getElementById("confidenceIdentityList").innerHTML=(memberAdminState.identities.confidence||[]).map(p=>`<option value="${memberEsc(p.player_key)}">${memberEsc(p.player_name)}</option>`).join("");
+  const roleSelect=document.getElementById("newMemberRole");
+  if(roleSelect) roleSelect.value=rows.length ? "MEMBER" : "COMMISSIONER";
+  const box=document.getElementById("memberAccountList");
+  if(!rows.length){box.innerHTML='<div class="quality-placeholder">No member accounts yet. Create the Commissioner account first. The first account is automatically assigned the Commissioner role.</div>';return;}
+  box.innerHTML=rows.map(m=>`<article class="member-admin-card" data-member="${m.id}">
+    <div class="member-admin-card-head">
+      <div><strong>${memberEsc(m.display_name)}</strong><span>${memberEsc(m.username)} · ${memberEsc(m.role)}</span></div>
+      <span class="member-account-state ${m.active?"active":"inactive"}">${m.active?"ACTIVE":"INACTIVE"}</span>
+    </div>
+    <div class="member-admin-edit-grid">
+      <label><span>Username</span><input data-field="username" value="${memberEsc(m.username)}" maxlength="80"></label>
+      <label><span>Display Name</span><input data-field="display_name" value="${memberEsc(m.display_name)}" maxlength="80"></label>
+      <label><span>Role</span><select data-field="role"><option value="MEMBER" ${m.role==="MEMBER"?"selected":""}>Member</option><option value="COMMISSIONER" ${m.role==="COMMISSIONER"?"selected":""}>Commissioner</option></select></label>
+      <label><span>Draft Identity</span><select data-field="draft_player_id">${draftIdentityOptions(m.draft_player_id)}</select></label>
+      <label><span>Survivor Identity</span><input data-field="survivor_player_key" list="survivorIdentityList" value="${memberEsc(m.survivor_player_key||"")}" maxlength="100"></label>
+      <label><span>Confidence Identity</span><input data-field="confidence_player_key" list="confidenceIdentityList" value="${memberEsc(m.confidence_player_key||"")}" maxlength="100"></label>
+      <label class="member-active-check"><input data-field="active" type="checkbox" ${m.active?"checked":""}> <span>Active account</span></label>
+    </div>
+    <div class="member-admin-meta">
+      <span>Last login: <strong>${memberEsc(memberFmtDate(m.last_login_at))}</strong></span>
+      <span>${m.must_change_password?"Temporary password / change required":"Password established"}</span>
+    </div>
+    <div class="member-admin-actions">
+      <button class="secondary" type="button" onclick="saveMember(${m.id})">Save Account</button>
+      <input data-reset-password type="text" maxlength="100" placeholder="New temporary password">
+      <button type="button" onclick="resetMemberPassword(${m.id})">Reset Password</button>
+    </div>
+  </article>`).join("");
+}
+async function loadMembers(){
+  const password=document.getElementById("memberAdminPassword").value;
+  if(!password){memberAdminMessage("Enter the Commissioner password.",false);return;}
+  memberAdminMessage("Loading member accounts…",true);
+  try{
+    const r=await fetch("/api/admin/members",{headers:{"X-Admin-Password":password}});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not load members.");
+    memberAdminState=d;renderMemberAccounts();memberAdminMessage("✓ Member accounts loaded.",true);
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+function generateTempPassword(){
+  const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes=new Uint32Array(8);crypto.getRandomValues(bytes);
+  const chars=[...bytes].map(v=>alphabet[v%alphabet.length]).join("");
+  document.getElementById("newMemberTempPassword").value=`NFL-${chars.slice(0,4)}-${chars.slice(4)}`;
+}
+async function bulkCreateDraftMembers(){
+  const password=document.getElementById("memberAdminPassword").value;
+  if(!password){memberAdminMessage("Enter the Commissioner password first.",false);return;}
+  if(!confirm("Create personal accounts for all Draft players who are not already linked?"))return;
+  memberAdminMessage("Creating missing Draft member accounts…",true);
+  try{
+    const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,action:"bulk_from_draft"})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not bulk-create accounts.");
+    const box=document.getElementById("bulkCredentials");
+    const creds=d.credentials||[];
+    if(creds.length){
+      box.classList.remove("hidden");
+      box.innerHTML=`<div class="bulk-credentials-head"><div><strong>New Temporary Credentials</strong><span>Copy or print this list now. Temporary passwords are not stored in readable form and cannot be displayed again.</span></div><button class="ghost" type="button" onclick="window.print()">Print</button></div>
+      <div class="tablewrap"><table><thead><tr><th>Member</th><th>Username</th><th>Temporary Password</th></tr></thead><tbody>${creds.map(c=>`<tr><td>${memberEsc(c.display_name)}</td><td>${memberEsc(c.username)}</td><td><strong>${memberEsc(c.temporary_password)}</strong></td></tr>`).join("")}</tbody></table></div>`;
+    }else{
+      box.classList.add("hidden");box.innerHTML="";
+    }
+    memberAdminMessage("✓ "+d.message,true);await loadMembers();
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+
+async function createMember(){
+  const password=document.getElementById("memberAdminPassword").value;
+  const payload={
+    password,action:"create",
+    username:document.getElementById("newMemberUsername").value.trim(),
+    display_name:document.getElementById("newMemberDisplayName").value.trim(),
+    temporary_password:document.getElementById("newMemberTempPassword").value,
+    role:document.getElementById("newMemberRole").value,
+    draft_player_id:document.getElementById("newMemberDraft").value||null,
+    survivor_player_key:document.getElementById("newMemberSurvivor").value.trim(),
+    confidence_player_key:document.getElementById("newMemberConfidence").value.trim(),
+    active:document.getElementById("newMemberActive").checked
+  };
+  try{
+    const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create member.");
+    memberAdminMessage("✓ "+d.message,true);
+    ["newMemberUsername","newMemberDisplayName","newMemberTempPassword","newMemberSurvivor","newMemberConfidence"].forEach(id=>document.getElementById(id).value="");
+    await loadMembers();
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+function memberCard(id){return document.querySelector(`[data-member="${id}"]`);}
+async function saveMember(id){
+  const card=memberCard(id),password=document.getElementById("memberAdminPassword").value;
+  if(!card)return;
+  const get=f=>card.querySelector(`[data-field="${f}"]`);
+  const payload={
+    password,action:"update",id,
+    username:get("username").value.trim(),
+    display_name:get("display_name").value.trim(),
+    role:get("role").value,
+    draft_player_id:get("draft_player_id").value||null,
+    survivor_player_key:get("survivor_player_key").value.trim(),
+    confidence_player_key:get("confidence_player_key").value.trim(),
+    active:get("active").checked
+  };
+  try{
+    const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not update member.");
+    memberAdminMessage("✓ "+d.message,true);await loadMembers();
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+async function resetMemberPassword(id){
+  const card=memberCard(id),password=document.getElementById("memberAdminPassword").value;
+  const temporary_password=card?.querySelector("[data-reset-password]")?.value||"";
+  if(!temporary_password){memberAdminMessage("Enter a new temporary password for that member.",false);return;}
+  if(!confirm("Reset this member's password? They will have to create a new password at next sign-in."))return;
+  try{
+    const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,action:"reset_password",id,temporary_password})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not reset password.");
+    memberAdminMessage("✓ "+d.message,true);card.querySelector("[data-reset-password]").value="";await loadMembers();
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+
 async function changeMemberPassword(){
   const admin_password=document.getElementById("siteAdminPassword").value;
   const new_password=document.getElementById("newSitePassword").value;
   const confirm_password=document.getElementById("confirmSitePassword").value;
   const msg=document.getElementById("sitePasswordMsg");
   msg.className="test-msg";
-  msg.textContent="Updating member password…";
+  msg.textContent="Updating shared site access password…";
   try{
     const r=await fetch("/api/admin/site-password",{
       method:"POST",

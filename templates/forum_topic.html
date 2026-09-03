@@ -43,8 +43,9 @@
       </div>
     </div>
 
-    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
       <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -61,12 +62,12 @@
 
 <section class="card forum-reply-card">
   <div class="section-head"><div><div class="eyebrow dark-eyebrow">JOIN THE DISCUSSION</div><h2>Post a Reply</h2></div></div>
-  <label><span>Display Name</span><input id="author" maxlength="60" placeholder="Your pool name"></label>
+  <div class="forum-verified-author">Replying as <strong>{{session.get('member_display_name','Member')}}</strong> <span>✓ Verified member</span></div>
   <label class="forum-message-field"><span>Reply</span><textarea id="message" maxlength="4000" rows="5" placeholder="Write your reply…"></textarea></label>
   <div class="forum-compose-footer"><span id="charCount">0 / 4000</span><button id="postReply" class="primary">Post Reply</button></div>
 </section>
 
-<section class="card forum-admin-card"><details><summary>Commissioner Forum Controls</summary><div class="forum-admin-controls"><input id="adminPassword" type="password" placeholder="Commissioner password"><button id="toggleModeration" class="secondary">Enable Delete Controls</button></div></details></section>
+<section class="card forum-admin-card {% if session.get('member_role') != 'COMMISSIONER' %}hidden{% endif %}"><details><summary>Commissioner Forum Controls</summary><div class="forum-admin-controls"><input id="adminPassword" type="password" placeholder="Commissioner password"><button id="toggleModeration" class="secondary">Enable Delete Controls</button></div></details></section>
 </main>
 <script>
 const topicId={{topic_id}},$=id=>document.getElementById(id);
@@ -76,8 +77,8 @@ function showStatus(msg,type="ok"){const el=$("status");el.textContent=msg;el.cl
 function fmtDate(v){if(!v)return "";const d=new Date(v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
 function render(){
  if(!topic)return;
- $("topicCard").innerHTML=`<div class="forum-thread-header"><div><div class="eyebrow dark-eyebrow">TOPIC</div><h2>${esc(topic.title)}</h2></div><span>${esc(fmtDate(topic.created_at))}</span></div><div class="forum-message-author">Posted by <strong>${esc(topic.author)}</strong></div><div class="forum-message-text">${esc(topic.message).replaceAll("\\n","<br>")}</div>`;
- $("posts").innerHTML=posts.length?posts.map(p=>`<article class="forum-post"><div class="forum-post-head"><strong>${esc(p.author)}</strong><span>${esc(fmtDate(p.created_at))}</span></div><div class="forum-message-text">${esc(p.message).replaceAll("\\n","<br>")}</div>${moderation?`<button class="forum-delete" onclick="deletePost(${p.id})">Delete Reply</button>`:""}</article>`).join(""):'<div class="forum-empty">No replies yet.</div>';
+ $("topicCard").innerHTML=`<div class="forum-thread-header"><div><div class="eyebrow dark-eyebrow">TOPIC</div><h2>${esc(topic.title)}</h2></div><span>${esc(fmtDate(topic.created_at))}</span></div><div class="forum-message-author">Posted by <strong>${esc(topic.author)}</strong>${topic.member_account_id?'<b class="verified-author-mark" title="Verified member">✓</b>':""}</div><div class="forum-message-text">${esc(topic.message).replaceAll("\\n","<br>")}</div>`;
+ $("posts").innerHTML=posts.length?posts.map(p=>`<article class="forum-post"><div class="forum-post-head"><strong>${esc(p.author)}${p.member_account_id?'<b class="verified-author-mark" title="Verified member">✓</b>':""}</strong><span>${esc(fmtDate(p.created_at))}</span></div><div class="forum-message-text">${esc(p.message).replaceAll("\\n","<br>")}</div>${moderation?`<button class="forum-delete" onclick="deletePost(${p.id})">Delete Reply</button>`:""}</article>`).join(""):'<div class="forum-empty">No replies yet.</div>';
 }
 async function load(){
  const r=await fetch("/api/forum/topic/"+topicId);const d=await r.json();
@@ -85,8 +86,8 @@ async function load(){
  topic=d.topic;posts=d.posts||[];render();
 }
 async function postReply(){
- const author=$("author").value.trim(),message=$("message").value.trim();$("postReply").disabled=true;
- try{const r=await fetch(`/api/forum/topic/${topicId}/reply`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({author,message})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not post reply.");$("message").value="";$("charCount").textContent="0 / 4000";showStatus("✓ Reply posted.","ok");await load();}
+ const message=$("message").value.trim();$("postReply").disabled=true;
+ try{const r=await fetch(`/api/forum/topic/${topicId}/reply`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not post reply.");$("message").value="";$("charCount").textContent="0 / 4000";showStatus("✓ Reply posted.","ok");await load();}
  catch(e){showStatus(e.message,"error");}finally{$("postReply").disabled=false;}
 }
 async function deletePost(id){

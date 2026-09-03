@@ -18,8 +18,9 @@
       <button class="nav-group-button" type="button">CONFIDENCE POOL <span class="nav-caret">▾</span></button>
       <div class="nav-dropdown"><div class="nav-dropdown-heading">CONFIDENCE POOL</div><a href="/confidence">Make Weekly Picks</a><a href="/confidence/results">Weekly Results</a><a href="/confidence/standings">Season Standings</a></div>
     </div>
-    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
       <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct" href="/account">ACCOUNT</a>
     <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
   </nav>
 </header>
@@ -34,14 +35,13 @@
     <p>The Confidence Pool on this site is currently in testing. Until testing is complete, all official Confidence Pool picks must continue to be submitted through the Football Frenzy website. Picks entered here are for testing purposes only and will not be considered official.</p>
   </div>
 </section>
-<details class="player-instructions"><summary><span>How to Submit Your Weekly Picks</span><small>Player instructions</small></summary><div class="player-instructions-body"><ol><li>Select the <strong>NFL week</strong>.</li><li>Enter your <strong>player name</strong> and <strong>Confidence PIN</strong>. On your first submission, use the PIN you want associated with your player name.</li><li>For <strong>every game listed</strong>, select the team you are picking.</li><li>Assign one <strong>Confidence Value</strong> to every game. Each available number must be used once and only once.</li><li>Enter your predicted <strong>Final Game Total Score</strong>.</li><li>Review the entire entry and click <strong>Submit Week Entry</strong>.</li><li>Confirm the website reports that your entry was saved successfully.</li></ol><p class="instruction-note"><strong>To make changes:</strong> select the week, enter your player name and PIN, click <strong>Load My Entry</strong>, make your changes, and submit again before the weekly lock.</p></div></details>
+<details class="player-instructions"><summary><span>How to Submit Your Weekly Test Picks</span><small>Player instructions</small></summary><div class="player-instructions-body"><ol><li>Sign in to your <strong>personal member account</strong>.</li><li>Select the <strong>NFL week</strong>.</li><li>For <strong>every game listed</strong>, select the team you are picking.</li><li>Assign one <strong>Confidence Value</strong> to every game. Each available number must be used once and only once.</li><li>Enter your predicted <strong>Final Game Total Score</strong>.</li><li>Review the entire entry and click <strong>Submit Week Entry</strong>.</li><li>Confirm the website reports that your entry was saved successfully.</li></ol><p class="instruction-note"><strong>To make changes:</strong> select the week, load your saved test entry, make your changes, and submit again before the weekly lock. Your member account identifies you automatically.</p></div></details>
 
 <div id="status" class="status hidden"></div>
 <section class="card confidence-entry-card"><div class="confidence-entry-head">
 <label><span>Week</span><select id="week">{% for w in range(1,19) %}<option value="{{w}}" {% if w==week %}selected{% endif %}>Week {{w}}</option>{% endfor %}</select></label>
-<label><span>Player Name</span><input id="playerName" maxlength="80" placeholder="Your pool name"></label>
-<label><span>Confidence PIN</span><input id="pin" type="password" inputmode="numeric" maxlength="12" placeholder="4–12 digits"></label>
-<button id="loadEntry" class="secondary" type="button">Load My Entry</button></div>
+<label><span>Playing As</span><input id="playerName" maxlength="80" readonly value="{{session.get('member_display_name','')}}" class="member-identity-readonly"></label>
+<button id="loadEntry" class="secondary" type="button">Reload My Test Entry</button></div>
 <div id="lockBanner" class="survivor-timing-banner">Loading Week {{week}} schedule…</div></section>
 <section class="summary-grid confidence-summary">
 <div class="summary-card"><span>Games This Week</span><strong id="gameCount">—</strong></div>
@@ -101,24 +101,23 @@ async function loadWeek(){
   const lg=games.find(g=>String(g.id)===String(lastGameId));
   $("lastGameText").textContent=lg?`${lg.away_team} ${lg.away_name||""} @ ${lg.home_team} ${lg.home_name||""} — ${fmtKickoff(lg.game_date)}`:"Final game not available yet.";
   renderGames();
+  await loadEntry(true);
 }
-async function loadEntry(){
-  const name=$("playerName").value.trim(),pin=$("pin").value.trim();
-  if(!name||!pin){showStatus("Enter your player name and Confidence PIN first.","error");return;}
-  const r=await fetch(`/api/confidence/entry?player=${encodeURIComponent(name)}&pin=${encodeURIComponent(pin)}&week=${week}`);const d=await r.json();
-  if(!r.ok){showStatus(d.error||"Could not load entry.","error");return;}
+async function loadEntry(silent=false){
+  const r=await fetch(`/api/confidence/entry?week=${week}`);const d=await r.json();
+  if(!r.ok){if(!silent)showStatus(d.error||"Could not load entry.","error");return;}
+  if(d.player_name)$("playerName").value=d.player_name;
   existingPicks={};(d.picks||[]).forEach(p=>existingPicks[String(p.game_id)]=p);$("tiebreaker").value=d.entry?.tiebreaker_total??"";renderGames();
-  showStatus(d.entry?`Week ${week} entry loaded.`:`No saved Week ${week} entry yet.`,"ok");
+  if(!silent)showStatus(d.entry?`Week ${week} test entry loaded.`:`No saved Week ${week} test entry yet.`,"ok");
 }
 async function saveEntry(){
   if(locked){showStatus(`Week ${week} is locked.`,"error");return;}
-  const player_name=$("playerName").value.trim(),pin=$("pin").value.trim();
   const picks=games.map(g=>({game_id:String(g.id),team:document.querySelector(`input[name="game-${CSS.escape(String(g.id))}"]:checked`)?.value||"",confidence_value:Number(document.querySelector(`select[data-game="${CSS.escape(String(g.id))}"]`)?.value||0)}));
   if(picks.some(p=>!p.team)){showStatus(`Select a winner for all ${games.length} games.`,"error");return;}
   const vals=picks.map(p=>p.confidence_value);if(vals.some(v=>!v)||new Set(vals).size!==games.length){showStatus(`Use every confidence value from 1 through ${games.length} exactly once.`,"error");return;}
   if($("tiebreaker").value===""){showStatus("Enter your final-game total score tiebreaker.","error");return;}
   const tiebreaker_total=Number($("tiebreaker").value);$("saveEntry").disabled=true;$("saveEntry").textContent="Saving…";
-  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_name,pin,week,picks,tiebreaker_total})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Entry could not be saved.");showStatus("✓ "+d.message,"ok");await loadEntry();}
+  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week,picks,tiebreaker_total})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Entry could not be saved.");showStatus("✓ "+d.message,"ok");await loadEntry();}
   catch(e){showStatus(e.message,"error");}finally{if(!locked){$("saveEntry").disabled=false;$("saveEntry").textContent=`Submit Week ${week} Entry`;}}
 }
 $("week").addEventListener("change",loadWeek);$("loadEntry").addEventListener("click",loadEntry);$("saveEntry").addEventListener("click",saveEntry);loadWeek();

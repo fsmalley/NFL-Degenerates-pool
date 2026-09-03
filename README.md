@@ -386,3 +386,26 @@ No Supabase migration is required.
 Clarifies that the site's Confidence Pool is in testing and that all official Confidence Pool picks must continue to be submitted through Football Frenzy until testing is complete. Picks entered on NFL Degenerates are testing-only.
 
 No Supabase migration is required.
+
+
+## V2.13 — Individual Member Accounts
+
+V2.13 adds Commissioner-managed individual user accounts while retaining the shared private-site password as the first access gate.
+
+Highlights:
+- personal username/password sign-in
+- first-login temporary-password change
+- MEMBER / COMMISSIONER roles
+- personalized **My Pools** dashboard
+- automatic Survivor and Confidence identity
+- verified Pool Talk author names
+- member-account IDs on new forum posts
+- Commissioner member management and password resets
+- Draft/Survivor/Confidence identity linking
+- bulk account creation from unlinked Draft players
+- Commissioner lockout protections
+- member-account database diagnostics
+
+Run `v2_13_member_accounts_schema_update.sql` before deploying this version.
+
+See `V2_13_MEMBER_ACCOUNTS_NOTES.md` and `V2_13_DEPLOYMENT_CHECKLIST.md`.

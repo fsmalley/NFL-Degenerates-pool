@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My Account — NFL Degenerates</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav">
+    <a class="nav-direct" href="/">HOME</a>
+    <a class="nav-direct" href="/results">NFL RESULTS</a>
+    <a class="nav-direct" href="/draft">DRAFT POOL</a>
+    <a class="nav-direct" href="/survivor">SURVIVOR POOL</a>
+    <a class="nav-direct" href="/confidence">CONFIDENCE POOL</a>
+    <a class="nav-direct" href="/forum">FORUM</a>
+    {% if session.get('member_role') == 'COMMISSIONER' %}<a class="nav-direct" href="/test-lab">COMMISSIONER</a>{% endif %}
+    <a class="nav-direct active-nav" href="/account">ACCOUNT</a>
+    <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
+  </nav>
+</header>
+<main>
+<section class="hero">
+  <div><div class="eyebrow">{{season}} MEMBER PROFILE</div><h1>My Account</h1><p>Your NFL Degenerates identity and pool connections.</p></div>
+</section>
+<section class="account-profile-grid">
+  <div class="card account-profile-card"><span>Display Name</span><strong>{{account.display_name}}</strong></div>
+  <div class="card account-profile-card"><span>Username</span><strong>{{account.username}}</strong></div>
+  <div class="card account-profile-card"><span>Role</span><strong>{{account.role}}</strong></div>
+  <div class="card account-profile-card"><span>Last Login</span><strong id="lastLogin">{{account.last_login_at or "—"}}</strong></div>
+</section>
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">POOL CONNECTIONS</div><h2>Linked Identities</h2><p>These connections let the site recognize you automatically without separate pool PINs.</p></div></div>
+  <div class="account-links-grid">
+    <div><span>Draft Team Pool</span><strong>{% if account.draft_player_id %}Player #{{account.draft_player_id}} linked{% else %}Not linked{% endif %}</strong></div>
+    <div><span>Survivor Pool</span><strong>{{account.survivor_player_key or account.display_name}}</strong></div>
+    <div><span>Confidence Pool</span><strong>{{account.confidence_player_key or account.display_name}}</strong><small>Testing only — official picks remain on Football Frenzy.</small></div>
+  </div>
+</section>
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">SECURITY</div><h2>Password & Sign-In</h2></div></div>
+  <div class="account-actions">
+    <a class="primary button-link" href="/account/password">Change My Password</a>
+    <a class="secondary button-link" href="/member-logout">Switch Member Account</a>
+    <a class="ghost button-link" href="/logout">Exit NFL Degenerates</a>
+  </div>
+</section>
+</main>
+<script>
+const el=document.getElementById("lastLogin");if(el&&el.textContent!=="—"){const d=new Date(el.textContent);if(!Number.isNaN(d.getTime()))el.textContent=new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
+</script>
+</body></html>
