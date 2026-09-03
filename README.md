@@ -373,3 +373,16 @@ Dashboard features:
 Commissioner → Test Lab now includes a **Commissioner Announcement** editor. The announcement is stored in the existing `site_settings` table.
 
 No new Supabase migration is required for V2.12.
+
+
+## V2.12.1 — Confidence Pool Testing Alert
+
+Adds a prominent **CONFIDENCE POOL — STILL IN TESTING PHASE** notice to the Confidence entry, weekly results, and season standings pages. The Member Dashboard Confidence card also displays a smaller testing badge.
+
+No Supabase migration is required.
+
+
+## V2.12.2 — Confidence Pool Official-Picks Notice
+Clarifies that the site's Confidence Pool is in testing and that all official Confidence Pool picks must continue to be submitted through Football Frenzy until testing is complete. Picks entered on NFL Degenerates are testing-only.
+
+No Supabase migration is required.

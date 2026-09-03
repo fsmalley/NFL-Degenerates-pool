@@ -24,6 +24,13 @@
 </header>
 <main><section class="hero"><div><div class="eyebrow">{{season}} CONFIDENCE POOL</div><h1>Confidence Pool — Season Standings</h1><p>Season totals are the sum of confidence points earned from correct picks across all completed games.</p></div>
 <div class="hero-actions"><a class="button-link primary" href="/confidence">Make Weekly Picks</a><a class="button-link secondary" href="/confidence/results">Weekly Results</a></div></section>
+<section class="confidence-testing-alert" role="alert">
+  <div class="confidence-testing-icon" aria-hidden="true">⚠️</div>
+  <div>
+    <strong>CONFIDENCE POOL — STILL IN TESTING PHASE</strong>
+    <p>The Confidence Pool on this site is currently in testing. Until testing is complete, all official Confidence Pool picks must continue to be submitted through the Football Frenzy website. Picks entered here are for testing purposes only and will not be considered official.</p>
+  </div>
+</section>
 <section class="summary-grid"><div class="summary-card"><span>Players</span><strong id="players">—</strong></div><div class="summary-card"><span>Leader</span><strong id="leader">—</strong></div><div class="summary-card"><span>Leading Points</span><strong id="points">—</strong></div><div class="summary-card"><span>Season</span><strong>{{season}}</strong></div></section>
 <section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">FULL SEASON</div><h2>Confidence Pool Leaderboard</h2><p>Scroll horizontally to see each player's weekly confidence points.</p></div></div>
 <div class="tablewrap"><table class="confidence-standings-table"><thead><tr><th>Rank</th><th>Player</th><th>Total</th><th>Weeks Entered</th>{% for w in range(1,19) %}<th>W{{w}}</th>{% endfor %}</tr></thead><tbody id="body"><tr><td colspan="22">Loading standings…</td></tr></tbody></table></div></section></main>

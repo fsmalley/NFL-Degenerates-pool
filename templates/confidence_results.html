@@ -25,6 +25,13 @@
 <main>
 <section class="hero"><div><div class="eyebrow">{{season}} CONFIDENCE POOL</div><h1>Confidence Pool — Weekly Results</h1><p>Correct picks earn their assigned confidence value. Weekly ties are broken by the closest final-game total score prediction.</p></div>
 <div class="hero-actions"><a class="button-link primary" href="/confidence?week={{week}}">Make Picks</a><a class="button-link secondary" href="/confidence/standings">Season Standings</a></div></section>
+<section class="confidence-testing-alert" role="alert">
+  <div class="confidence-testing-icon" aria-hidden="true">⚠️</div>
+  <div>
+    <strong>CONFIDENCE POOL — STILL IN TESTING PHASE</strong>
+    <p>The Confidence Pool on this site is currently in testing. Until testing is complete, all official Confidence Pool picks must continue to be submitted through the Football Frenzy website. Picks entered here are for testing purposes only and will not be considered official.</p>
+  </div>
+</section>
 <section class="card"><div class="confidence-results-toolbar"><label><span>Week</span><select id="week">{% for w in range(1,19) %}<option value="{{w}}" {% if w==week %}selected{% endif %}>Week {{w}}</option>{% endfor %}</select></label><div id="revealNote" class="survivor-timing-banner">Loading…</div></div></section>
 <section class="summary-grid"><div class="summary-card"><span>Entries</span><strong id="entries">—</strong></div><div class="summary-card"><span>Games</span><strong id="games">—</strong></div><div class="summary-card"><span>Leader</span><strong id="leader">—</strong></div><div class="summary-card"><span>Final-Game Actual</span><strong id="actual">—</strong></div></section>
 <section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY LEADERBOARD</div><h2 id="title">Week {{week}} Results</h2><p>Click an entry after picks are revealed to see every selection and confidence result.</p></div></div>
