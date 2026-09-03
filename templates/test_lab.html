@@ -112,6 +112,8 @@
   <div class="member-admin-auth">
     <label><span>Commissioner Password</span><input id="memberAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
     <button class="secondary" type="button" onclick="loadMembers()">Load / Refresh Members</button>
+    <button class="secondary" type="button" onclick="exportMemberList()">Export Member List CSV</button>
+    <button class="secondary" id="downloadCredentialsBtn" type="button" onclick="downloadCredentialList()" disabled>Download New Credentials CSV</button>
   </div>
   <div id="memberAdminMsg"></div>
 
@@ -262,6 +264,44 @@
 
 <script>
 let memberAdminState={members:[],identities:{draft:[],survivor:[],confidence:[]}};
+let newlyIssuedCredentials=[];
+
+function csvCell(v){
+  const s=String(v??"");
+  return `"${s.replaceAll('"','""')}"`;
+}
+function downloadCsv(filename,headers,rows){
+  const csv=[headers.map(csvCell).join(","),...rows.map(r=>r.map(csvCell).join(","))].join("\r\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+function exportMemberList(){
+  const rows=memberAdminState.members||[];
+  if(!rows.length){memberAdminMessage("Load the member list before exporting.",false);return;}
+  downloadCsv("NFL_Degenerates_Member_List.csv",
+    ["Display Name","Username","Role","Active","Draft Identity","Survivor Identity","Confidence Identity","Last Login","Password Status"],
+    rows.map(m=>[m.display_name,m.username,m.role,m.active?"Active":"Inactive",
+      m.draft_player_id?`Player #${m.draft_player_id}`:"Not linked",
+      m.survivor_player_key||"",m.confidence_player_key||"",m.last_login_at||"Never",
+      m.must_change_password?"Temporary Password / Change Required":"Password Established"])
+  );
+  memberAdminMessage("✓ Member list exported. Current private passwords are intentionally not included.",true);
+}
+function setNewCredentials(rows){
+  newlyIssuedCredentials=rows||[];
+  const btn=document.getElementById("downloadCredentialsBtn");
+  if(btn)btn.disabled=!newlyIssuedCredentials.length;
+}
+function downloadCredentialList(){
+  if(!newlyIssuedCredentials.length){memberAdminMessage("There are no newly issued temporary credentials to export.",false);return;}
+  downloadCsv("NFL_Degenerates_New_Temporary_Credentials.csv",
+    ["Display Name","Username","Temporary Password"],
+    newlyIssuedCredentials.map(c=>[c.display_name,c.username,c.temporary_password])
+  );
+  memberAdminMessage("✓ Newly issued temporary credentials downloaded. Store this file securely.",true);
+}
 
 function memberEsc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");}
 function memberFmtDate(v){
@@ -307,6 +347,7 @@ function renderMemberAccounts(){
       <button class="secondary" type="button" onclick="saveMember(${m.id})">Save Account</button>
       <input data-reset-password type="text" maxlength="100" placeholder="New temporary password">
       <button type="button" onclick="resetMemberPassword(${m.id})">Reset Password</button>
+      <button class="secondary" type="button" onclick="resetMemberPassword(${m.id},true)">Reset & Export Credential</button>
     </div>
   </article>`).join("");
 }
@@ -336,6 +377,7 @@ async function bulkCreateDraftMembers(){
     const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not bulk-create accounts.");
     const box=document.getElementById("bulkCredentials");
     const creds=d.credentials||[];
+    setNewCredentials(creds);
     if(creds.length){
       box.classList.remove("hidden");
       box.innerHTML=`<div class="bulk-credentials-head"><div><strong>New Temporary Credentials</strong><span>Copy or print this list now. Temporary passwords are not stored in readable form and cannot be displayed again.</span></div><button class="ghost" type="button" onclick="window.print()">Print</button></div>
@@ -364,6 +406,7 @@ async function createMember(){
     const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create member.");
     memberAdminMessage("✓ "+d.message,true);
+    setNewCredentials([{display_name:payload.display_name,username:payload.username,temporary_password:payload.temporary_password}]);
     ["newMemberUsername","newMemberDisplayName","newMemberTempPassword","newMemberSurvivor","newMemberConfidence"].forEach(id=>document.getElementById(id).value="");
     await loadMembers();
   }catch(e){memberAdminMessage(e.message,false);}
@@ -389,15 +432,20 @@ async function saveMember(id){
     memberAdminMessage("✓ "+d.message,true);await loadMembers();
   }catch(e){memberAdminMessage(e.message,false);}
 }
-async function resetMemberPassword(id){
+async function resetMemberPassword(id,exportAfter=false){
   const card=memberCard(id),password=document.getElementById("memberAdminPassword").value;
   const temporary_password=card?.querySelector("[data-reset-password]")?.value||"";
   if(!temporary_password){memberAdminMessage("Enter a new temporary password for that member.",false);return;}
   if(!confirm("Reset this member's password? They will have to create a new password at next sign-in."))return;
+  const member=(memberAdminState.members||[]).find(m=>Number(m.id)===Number(id));
   try{
     const r=await fetch("/api/admin/members",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,action:"reset_password",id,temporary_password})});
     const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not reset password.");
-    memberAdminMessage("✓ "+d.message,true);card.querySelector("[data-reset-password]").value="";await loadMembers();
+    setNewCredentials([{display_name:member?.display_name||"Member",username:member?.username||"",temporary_password}]);
+    memberAdminMessage("✓ "+d.message,true);
+    if(exportAfter)downloadCredentialList();
+    card.querySelector("[data-reset-password]").value="";
+    await loadMembers();
   }catch(e){memberAdminMessage(e.message,false);}
 }
 

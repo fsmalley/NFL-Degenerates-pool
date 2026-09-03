@@ -409,3 +409,13 @@ Highlights:
 Run `v2_13_member_accounts_schema_update.sql` before deploying this version.
 
 See `V2_13_MEMBER_ACCOUNTS_NOTES.md` and `V2_13_DEPLOYMENT_CHECKLIST.md`.
+
+
+## V2.13.1 — Commissioner Member Export Refinement
+
+- Adds **Export Member List CSV**.
+- Member-list export includes display name, username, role, status, linked pool identities, last login, and password status.
+- Current private passwords are never exported because only secure password hashes are stored.
+- Adds **Download New Credentials CSV** for temporary passwords issued during the current browser session.
+- Adds **Reset & Export Credential** for individual members.
+- No Supabase migration is required for V2.13.1.
