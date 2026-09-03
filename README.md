@@ -354,3 +354,22 @@ Commissioner controls are available on the forum pages. After entering the exist
 
 ### Database update required
 Run `v2_11_forum_schema_update.sql` in Supabase before deploying V2.11.
+
+
+## V2.12 — Member Dashboard
+
+V2.12 changes the authenticated home page into a member dashboard while preserving the former weekly NFL Results page at `/results`.
+
+Dashboard features:
+- Current/relevant NFL week indicator.
+- Commissioner-editable announcement.
+- Top 3 Draft Team Pool season leaders.
+- Survivor players still alive.
+- Confidence Pool weekly open/locked status, lock time, and season leaders.
+- Upcoming NFL games.
+- Three most recently active Pool Talk topics.
+- Quick links to all major member actions.
+
+Commissioner → Test Lab now includes a **Commissioner Announcement** editor. The announcement is stored in the existing `site_settings` table.
+
+No new Supabase migration is required for V2.12.

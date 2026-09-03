@@ -1680,10 +1680,193 @@ def api_confidence_standings():
         return jsonify({"ok":False,"error":str(e),"players":[]}),500
 
 
+
+def dashboard_current_week():
+    """Choose the most relevant week from stored season game data."""
+    try:
+        rows = sb_get(
+            "games",
+            {"select":"week,status,game_date","season":f"eq.{SEASON}","order":"week.asc"}
+        )
+    except Exception:
+        rows = []
+
+    if not rows:
+        return 1
+
+    weeks = {}
+    for g in rows:
+        try:
+            w = int(g.get("week") or 0)
+        except Exception:
+            continue
+        if 1 <= w <= 18:
+            weeks.setdefault(w, []).append(g)
+
+    if not weeks:
+        return 1
+
+    # First week that is not completely final.
+    for w in sorted(weeks):
+        games = weeks[w]
+        if not games:
+            continue
+        if not all(str(g.get("status") or "").lower() == "final" for g in games):
+            return w
+
+    return max(weeks)
+
+
+def dashboard_announcement():
+    return {
+        "message": get_site_setting(
+            "dashboard_announcement",
+            "Welcome to NFL Degenerates. Check your pools and make sure your weekly picks are submitted before lock."
+        ),
+        "enabled": get_site_setting("dashboard_announcement_enabled", "true").lower() != "false"
+    }
+
+
+@app.route("/api/dashboard")
+def api_dashboard():
+    week = dashboard_current_week()
+    data = {
+        "ok": True,
+        "season": SEASON,
+        "week": week,
+        "announcement": dashboard_announcement(),
+        "draft": {"leaders": [], "player_count": 0},
+        "survivor": {"alive": 0, "total": 0},
+        "confidence": {"leaders": [], "player_count": 0, "locked": False, "lock_time": None},
+        "forum": {"topics": []},
+        "next_games": []
+    }
+
+    try:
+        draft_players = draft_data()
+        draft_players = sorted(
+            draft_players,
+            key=lambda p: (int(p.get("rank") or 999), -int(p.get("total_points") or 0), str(p.get("player_name") or "").lower())
+        )
+        data["draft"] = {
+            "leaders": [{
+                "rank": p.get("rank"),
+                "player_name": p.get("player_name"),
+                "total_points": p.get("total_points", 0)
+            } for p in draft_players[:3]],
+            "player_count": len(draft_players)
+        }
+    except Exception as e:
+        data["draft"]["error"] = str(e)
+
+    try:
+        board = survivor_board_data()
+        data["survivor"] = {
+            "alive": sum(1 for p in board if p.get("status") == "ALIVE"),
+            "total": len(board)
+        }
+    except Exception as e:
+        data["survivor"]["error"] = str(e)
+
+    try:
+        standings = confidence_season_standings()
+        standings = sorted(
+            standings,
+            key=lambda p: (int(p.get("rank") or 999), -int(p.get("total_points") or 0), str(p.get("player_name") or "").lower())
+        )
+        games = confidence_week_games(week)
+        locked, lock_time = confidence_week_lock(week, games)
+        data["confidence"] = {
+            "leaders": [{
+                "rank": p.get("rank"),
+                "player_name": p.get("player_name"),
+                "total_points": p.get("total_points", 0)
+            } for p in standings[:3]],
+            "player_count": len(standings),
+            "locked": locked,
+            "lock_time": lock_time.isoformat() if lock_time else None
+        }
+    except Exception as e:
+        data["confidence"]["error"] = str(e)
+
+    try:
+        topics = forum_topic_rows()
+        data["forum"]["topics"] = [{
+            "id": t.get("id"),
+            "title": t.get("title"),
+            "author": t.get("author"),
+            "reply_count": t.get("reply_count", 0),
+            "last_activity": t.get("last_activity")
+        } for t in topics[:3]]
+    except Exception as e:
+        data["forum"]["error"] = str(e)
+
+    try:
+        try:
+            sync_week(week)
+        except Exception:
+            pass
+        games = get_week(week)
+        games = sorted(games, key=lambda g: str(g.get("game_date") or ""))
+        now = dt.datetime.now(dt.timezone.utc)
+        upcoming = []
+        for g in games:
+            kickoff = parse_game_datetime(g.get("game_date"))
+            if str(g.get("status") or "").lower() == "final":
+                continue
+            if kickoff is None or kickoff >= now - dt.timedelta(hours=5):
+                upcoming.append({
+                    "id": g.get("id"),
+                    "away_team": g.get("away_team"),
+                    "away_name": g.get("away_name") or TEAMS.get(g.get("away_team"), g.get("away_team")),
+                    "home_team": g.get("home_team"),
+                    "home_name": g.get("home_name") or TEAMS.get(g.get("home_team"), g.get("home_team")),
+                    "kickoff": kickoff.isoformat() if kickoff else g.get("game_date")
+                })
+        data["next_games"] = upcoming[:4]
+    except Exception as e:
+        data["games_error"] = str(e)
+
+    return jsonify(data)
+
+
+@app.route("/api/admin/dashboard-announcement", methods=["GET","POST"])
+def api_admin_dashboard_announcement():
+    if request.method == "GET":
+        return jsonify({"ok":True, **dashboard_announcement()})
+
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("password", "") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}),403
+
+    message = str(payload.get("message") or "").strip()
+    enabled = bool(payload.get("enabled", True))
+    if len(message) > 600:
+        return jsonify({"ok":False,"error":"Announcement must be 600 characters or fewer."}),400
+    if enabled and not message:
+        return jsonify({"ok":False,"error":"Enter an announcement or turn the announcement off."}),400
+
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    sb_upsert(
+        "site_settings",
+        [
+            {"setting_key":"dashboard_announcement","setting_value":message,"updated_at":now},
+            {"setting_key":"dashboard_announcement_enabled","setting_value":"true" if enabled else "false","updated_at":now}
+        ],
+        "setting_key"
+    )
+    return jsonify({"ok":True,"message":"Dashboard announcement updated.",**dashboard_announcement()})
+
+
 @app.route("/")
 def index():
-    week=max(1,min(18,request.args.get("week",1,type=int)))
-    return render_template("index.html",season=SEASON,week=week)
+    return render_template("index.html", season=SEASON)
+
+
+@app.route("/results")
+def nfl_results():
+    week=max(1,min(18,request.args.get("week",dashboard_current_week(),type=int)))
+    return render_template("results.html",season=SEASON,week=week)
 
 @app.route("/draft")
 def draft():

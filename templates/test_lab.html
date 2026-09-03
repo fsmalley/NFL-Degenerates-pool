@@ -10,7 +10,8 @@
 <header class="site-header">
   <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
   <nav class="pool-nav" aria-label="Primary navigation">
-    <a class="nav-direct" href="/">NFL RESULTS</a>
+    <a class="nav-direct" href="/">HOME</a>
+    <a class="nav-direct" href="/results">NFL RESULTS</a>
 
     <div class="nav-group">
       <button class="nav-group-button" type="button" aria-haspopup="true">
@@ -116,6 +117,23 @@
     <span>Current Visitor Count: <strong id="brandingVisitorCount">—</strong></span>
   </div>
   <div id="brandingMsg"></div>
+</section>
+
+<section class="card dashboard-announcement-admin">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow dark-eyebrow">MEMBER DASHBOARD</div>
+      <h2>Commissioner Announcement</h2>
+      <p>Post a message to the top of the member dashboard. Turn it off when there is nothing important to display.</p>
+    </div>
+  </div>
+  <div class="dashboard-announcement-admin-grid">
+    <label><span>Commissioner Password</span><input id="dashboardAdminPassword" type="password" autocomplete="current-password" placeholder="Commissioner password"></label>
+    <label class="dashboard-announcement-message"><span>Announcement</span><textarea id="dashboardAnnouncementText" maxlength="600" rows="4" placeholder="Example: Week 1 picks must be submitted before kickoff."></textarea></label>
+    <label class="dashboard-announcement-toggle"><input id="dashboardAnnouncementEnabled" type="checkbox" checked> <span>Show announcement on Member Dashboard</span></label>
+    <button class="primary" type="button" onclick="saveDashboardAnnouncement()">Save Announcement</button>
+  </div>
+  <div id="dashboardAnnouncementMsg"></div>
 </section>
 
 <section class="summary-grid">
@@ -260,6 +278,41 @@ async function saveLandingBranding(){
   }
 }
 loadLandingBranding();
+
+async function loadDashboardAnnouncement(){
+  try{
+    const r=await fetch("/api/admin/dashboard-announcement");
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not load dashboard announcement.");
+    document.getElementById("dashboardAnnouncementText").value=d.message||"";
+    document.getElementById("dashboardAnnouncementEnabled").checked=Boolean(d.enabled);
+  }catch(e){
+    const msg=document.getElementById("dashboardAnnouncementMsg");
+    msg.className="test-msg error";msg.textContent=e.message;
+  }
+}
+async function saveDashboardAnnouncement(){
+  const password=document.getElementById("dashboardAdminPassword").value;
+  const message=document.getElementById("dashboardAnnouncementText").value.trim();
+  const enabled=document.getElementById("dashboardAnnouncementEnabled").checked;
+  const msg=document.getElementById("dashboardAnnouncementMsg");
+  msg.className="test-msg";msg.textContent="Saving announcement…";
+  try{
+    const r=await fetch("/api/admin/dashboard-announcement",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password,message,enabled})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Could not save announcement.");
+    msg.className="test-msg ok";msg.textContent="✓ "+d.message;
+  }catch(e){
+    msg.className="test-msg error";msg.textContent=e.message;
+  }
+}
+loadDashboardAnnouncement();
+
+
 
 function esc(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");}
 function password(){return document.getElementById("password").value;}
