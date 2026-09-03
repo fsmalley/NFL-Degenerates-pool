@@ -1035,6 +1035,188 @@ def api_admin_site_branding():
     })
 
 
+
+# -----------------------------
+# Member Message Forum (V2.11)
+# -----------------------------
+
+def forum_topic_rows():
+    topics = sb_get(
+        "forum_topics",
+        {"select":"*","order":"created_at.desc","limit":"200"}
+    )
+    replies = sb_get(
+        "forum_posts",
+        {"select":"topic_id,id,created_at","order":"created_at.asc","limit":"5000"}
+    )
+    by_topic = {}
+    for row in replies:
+        by_topic.setdefault(str(row.get("topic_id")), []).append(row)
+
+    for topic in topics:
+        rows = by_topic.get(str(topic.get("id")), [])
+        topic["reply_count"] = len(rows)
+        topic["last_activity"] = rows[-1].get("created_at") if rows else topic.get("created_at")
+    topics.sort(key=lambda t: str(t.get("last_activity") or ""), reverse=True)
+    return topics
+
+
+def forum_topic(topic_id):
+    rows = sb_get(
+        "forum_topics",
+        {"select":"*","id":f"eq.{int(topic_id)}","limit":"1"}
+    )
+    return rows[0] if rows else None
+
+
+def forum_posts(topic_id):
+    return sb_get(
+        "forum_posts",
+        {
+            "select":"*",
+            "topic_id":f"eq.{int(topic_id)}",
+            "order":"created_at.asc",
+            "limit":"1000"
+        }
+    )
+
+
+@app.route("/forum")
+def forum():
+    return render_template("forum.html", season=SEASON)
+
+
+@app.route("/forum/topic/<int:topic_id>")
+def forum_topic_page(topic_id):
+    return render_template("forum_topic.html", season=SEASON, topic_id=topic_id)
+
+
+@app.route("/api/forum/topics", methods=["GET","POST"])
+def api_forum_topics():
+    if request.method == "GET":
+        try:
+            return jsonify({"ok":True,"topics":forum_topic_rows()})
+        except Exception as e:
+            print(f"FORUM TOPICS ERROR: {type(e).__name__}: {e}", flush=True)
+            return jsonify({"ok":False,"error":"Could not load forum topics.","topics":[]}),500
+
+    payload=request.get_json(silent=True) or {}
+    author=str(payload.get("author") or "").strip()
+    title=str(payload.get("title") or "").strip()
+    message=str(payload.get("message") or "").strip()
+
+    if not author:
+        return jsonify({"ok":False,"error":"Enter your display name."}),400
+    if len(author)>60:
+        return jsonify({"ok":False,"error":"Display name is too long."}),400
+    if not title:
+        return jsonify({"ok":False,"error":"Enter a topic title."}),400
+    if len(title)>120:
+        return jsonify({"ok":False,"error":"Topic title is too long."}),400
+    if not message:
+        return jsonify({"ok":False,"error":"Enter a message."}),400
+    if len(message)>4000:
+        return jsonify({"ok":False,"error":"Message is too long (4,000 character maximum)."}),400
+
+    now=dt.datetime.now(dt.timezone.utc).isoformat()
+    r=requests.post(
+        f"{SUPABASE_URL}/rest/v1/forum_topics",
+        headers=sb_headers({"Prefer":"return=representation"}),
+        json=[{
+            "author":author,
+            "title":title,
+            "message":message,
+            "created_at":now,
+            "updated_at":now
+        }],
+        timeout=20
+    )
+    r.raise_for_status()
+    rows=r.json() if r.content else []
+    topic=rows[0] if rows else None
+    return jsonify({"ok":True,"message":"Topic posted.","topic":topic})
+
+
+@app.route("/api/forum/topic/<int:topic_id>")
+def api_forum_topic(topic_id):
+    try:
+        topic=forum_topic(topic_id)
+        if not topic:
+            return jsonify({"ok":False,"error":"Forum topic not found."}),404
+        return jsonify({
+            "ok":True,
+            "topic":topic,
+            "posts":forum_posts(topic_id)
+        })
+    except Exception as e:
+        print(f"FORUM TOPIC ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok":False,"error":"Could not load this forum topic."}),500
+
+
+@app.route("/api/forum/topic/<int:topic_id>/reply", methods=["POST"])
+def api_forum_reply(topic_id):
+    payload=request.get_json(silent=True) or {}
+    author=str(payload.get("author") or "").strip()
+    message=str(payload.get("message") or "").strip()
+
+    if not forum_topic(topic_id):
+        return jsonify({"ok":False,"error":"Forum topic not found."}),404
+    if not author:
+        return jsonify({"ok":False,"error":"Enter your display name."}),400
+    if len(author)>60:
+        return jsonify({"ok":False,"error":"Display name is too long."}),400
+    if not message:
+        return jsonify({"ok":False,"error":"Enter a reply."}),400
+    if len(message)>4000:
+        return jsonify({"ok":False,"error":"Reply is too long (4,000 character maximum)."}),400
+
+    now=dt.datetime.now(dt.timezone.utc).isoformat()
+    r=requests.post(
+        f"{SUPABASE_URL}/rest/v1/forum_posts",
+        headers=sb_headers({"Prefer":"return=representation"}),
+        json=[{
+            "topic_id":int(topic_id),
+            "author":author,
+            "message":message,
+            "created_at":now,
+            "updated_at":now
+        }],
+        timeout=20
+    )
+    r.raise_for_status()
+    rows=r.json() if r.content else []
+    return jsonify({"ok":True,"message":"Reply posted.","post":rows[0] if rows else None})
+
+
+@app.route("/api/forum/admin/delete-topic", methods=["POST"])
+def api_forum_admin_delete_topic():
+    payload=request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("password","") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}),403
+    try:
+        topic_id=int(payload.get("topic_id"))
+    except Exception:
+        return jsonify({"ok":False,"error":"Invalid topic."}),400
+
+    sb_delete("forum_posts", {"topic_id":f"eq.{topic_id}"})
+    sb_delete("forum_topics", {"id":f"eq.{topic_id}"})
+    return jsonify({"ok":True,"message":"Topic and all replies deleted."})
+
+
+@app.route("/api/forum/admin/delete-post", methods=["POST"])
+def api_forum_admin_delete_post():
+    payload=request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD or payload.get("password","") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect commissioner password."}),403
+    try:
+        post_id=int(payload.get("post_id"))
+    except Exception:
+        return jsonify({"ok":False,"error":"Invalid reply."}),400
+
+    sb_delete("forum_posts", {"id":f"eq.{post_id}"})
+    return jsonify({"ok":True,"message":"Reply deleted."})
+
+
 # -----------------------------
 # Confidence Pool (V2.9)
 # -----------------------------
@@ -1539,7 +1721,9 @@ def health():
         sb_get("confidence_entries", {"select":"id","limit":"1"})
         sb_get("confidence_picks", {"select":"id","limit":"1"})
         sb_get("site_settings", {"select":"setting_key","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login"]}), 200
+        sb_get("forum_topics", {"select":"id","limit":"1"})
+        sb_get("forum_posts", {"select":"id","limit":"1"})
+        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login","forum"]}), 200
     except Exception as e:
         print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"status":"error","error":str(e)}), 500

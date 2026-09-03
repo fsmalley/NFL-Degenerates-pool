@@ -1,0 +1,97 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forum Topic</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct active-nav" href="/">NFL RESULTS</a>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <a href="/confidence">Make Weekly Picks</a>
+        <a href="/confidence/results">Weekly Results</a>
+        <a href="/confidence/standings">Season Standings</a>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+      <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
+  </nav>
+</header>
+<main>
+<section class="hero"><div><div class="eyebrow">{{season}} MEMBER FORUM</div><h1>Pool Talk</h1><p><a class="forum-back-link" href="/forum">← Back to all topics</a></p></div></section>
+<div id="status" class="status hidden"></div>
+
+<section id="topicCard" class="card forum-thread-main"><div class="forum-empty">Loading discussion…</div></section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">REPLIES</div><h2>Discussion</h2></div></div>
+  <div id="posts" class="forum-post-list"><div class="forum-empty">Loading replies…</div></div>
+</section>
+
+<section class="card forum-reply-card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">JOIN THE DISCUSSION</div><h2>Post a Reply</h2></div></div>
+  <label><span>Display Name</span><input id="author" maxlength="60" placeholder="Your pool name"></label>
+  <label class="forum-message-field"><span>Reply</span><textarea id="message" maxlength="4000" rows="5" placeholder="Write your reply…"></textarea></label>
+  <div class="forum-compose-footer"><span id="charCount">0 / 4000</span><button id="postReply" class="primary">Post Reply</button></div>
+</section>
+
+<section class="card forum-admin-card"><details><summary>Commissioner Forum Controls</summary><div class="forum-admin-controls"><input id="adminPassword" type="password" placeholder="Commissioner password"><button id="toggleModeration" class="secondary">Enable Delete Controls</button></div></details></section>
+</main>
+<script>
+const topicId={{topic_id}},$=id=>document.getElementById(id);
+const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+let topic=null,posts=[],moderation=false;
+function showStatus(msg,type="ok"){const el=$("status");el.textContent=msg;el.className="status "+type;el.classList.remove("hidden");}
+function fmtDate(v){if(!v)return "";const d=new Date(v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
+function render(){
+ if(!topic)return;
+ $("topicCard").innerHTML=`<div class="forum-thread-header"><div><div class="eyebrow dark-eyebrow">TOPIC</div><h2>${esc(topic.title)}</h2></div><span>${esc(fmtDate(topic.created_at))}</span></div><div class="forum-message-author">Posted by <strong>${esc(topic.author)}</strong></div><div class="forum-message-text">${esc(topic.message).replaceAll("\\n","<br>")}</div>`;
+ $("posts").innerHTML=posts.length?posts.map(p=>`<article class="forum-post"><div class="forum-post-head"><strong>${esc(p.author)}</strong><span>${esc(fmtDate(p.created_at))}</span></div><div class="forum-message-text">${esc(p.message).replaceAll("\\n","<br>")}</div>${moderation?`<button class="forum-delete" onclick="deletePost(${p.id})">Delete Reply</button>`:""}</article>`).join(""):'<div class="forum-empty">No replies yet.</div>';
+}
+async function load(){
+ const r=await fetch("/api/forum/topic/"+topicId);const d=await r.json();
+ if(!r.ok){showStatus(d.error||"Could not load discussion.","error");return;}
+ topic=d.topic;posts=d.posts||[];render();
+}
+async function postReply(){
+ const author=$("author").value.trim(),message=$("message").value.trim();$("postReply").disabled=true;
+ try{const r=await fetch(`/api/forum/topic/${topicId}/reply`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({author,message})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not post reply.");$("message").value="";$("charCount").textContent="0 / 4000";showStatus("✓ Reply posted.","ok");await load();}
+ catch(e){showStatus(e.message,"error");}finally{$("postReply").disabled=false;}
+}
+async function deletePost(id){
+ if(!confirm("Delete this reply?"))return;
+ const password=$("adminPassword").value;const r=await fetch("/api/forum/admin/delete-post",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,post_id:id})});const d=await r.json();if(!r.ok){showStatus(d.error||"Could not delete reply.","error");return;}showStatus("✓ Reply deleted.","ok");await load();
+}
+$("postReply").onclick=postReply;$("message").addEventListener("input",e=>$("charCount").textContent=`${e.target.value.length} / 4000`);
+$("toggleModeration").onclick=()=>{moderation=!moderation;$("toggleModeration").textContent=moderation?"Hide Delete Controls":"Enable Delete Controls";render();};load();
+</script></body></html>

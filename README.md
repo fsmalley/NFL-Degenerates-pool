@@ -332,3 +332,25 @@ The visitor count increments only after a successful member login, rather than o
 Commissioner → Test Lab includes **Visitor Count & Design Credit** controls. The commissioner can update the displayed designer credit and date/year using the existing Commissioner password.
 
 This release uses the existing `site_settings` table from V2.10, so no additional Supabase migration is required.
+
+
+## V2.11 — Member Message Forum
+
+V2.11 adds a private, members-only **Pool Talk** forum.
+
+### Member features
+- Start a new discussion topic.
+- Enter a display name.
+- Post a message up to 4,000 characters.
+- Open a topic to read the full discussion.
+- Add replies to an existing topic.
+- Recent topics are sorted by latest activity.
+- Forum access is protected by the existing NFL Degenerates member login.
+
+### Commissioner moderation
+Commissioner controls are available on the forum pages. After entering the existing Commissioner password, the commissioner can:
+- Delete an entire topic and all replies.
+- Delete an individual reply.
+
+### Database update required
+Run `v2_11_forum_schema_update.sql` in Supabase before deploying V2.11.

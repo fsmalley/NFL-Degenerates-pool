@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pool Talk Forum</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="site-brand" href="/">🏈 NFL DEGENERATES POOL</a>
+  <nav class="pool-nav" aria-label="Primary navigation">
+    <a class="nav-direct active-nav" href="/">NFL RESULTS</a>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        DRAFT POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">DRAFT POOL</div>
+        <a href="/draft">Season Standings</a>
+        <a href="/draft#leaderboard">Leaderboard</a>
+        <a href="/draft#player-breakdown">Player / Team Breakdown</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        SURVIVOR POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">SURVIVOR POOL</div>
+        <a href="/survivor">Make a Pick</a>
+        <a href="/survivor/results">Weekly Results</a>
+        <a href="/survivor/board">Season Board</a>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <button class="nav-group-button" type="button" aria-haspopup="true">
+        CONFIDENCE POOL <span class="nav-caret">▾</span>
+      </button>
+      <div class="nav-dropdown">
+        <div class="nav-dropdown-heading">CONFIDENCE POOL</div>
+        <a href="/confidence">Make Weekly Picks</a>
+        <a href="/confidence/results">Weekly Results</a>
+        <a href="/confidence/standings">Season Standings</a>
+      </div>
+    </div>
+
+    <a class="nav-direct" href="/test-lab">COMMISSIONER</a>
+      <a class="nav-direct" href="/forum">FORUM</a>
+    <a class="nav-direct member-logout" href="/logout">LOG OUT</a>
+  </nav>
+</header>
+<main>
+<section class="hero">
+  <div><div class="eyebrow">{{season}} MEMBER FORUM</div><h1>Pool Talk</h1>
+  <p>Post a message, start a discussion, or talk football with the other NFL Degenerates members.</p></div>
+</section>
+
+<div id="forumStatus" class="status hidden"></div>
+
+<section class="card forum-new-topic">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">NEW DISCUSSION</div><h2>Start a Topic</h2></div></div>
+  <div class="forum-form-grid">
+    <label><span>Display Name</span><input id="author" maxlength="60" placeholder="Your pool name"></label>
+    <label class="forum-title-field"><span>Topic Title</span><input id="title" maxlength="120" placeholder="What do you want to discuss?"></label>
+  </div>
+  <label class="forum-message-field"><span>Message</span><textarea id="message" maxlength="4000" rows="5" placeholder="Write your message…"></textarea></label>
+  <div class="forum-compose-footer"><span id="charCount">0 / 4000</span><button id="postTopic" class="primary">Post Topic</button></div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">MEMBER DISCUSSIONS</div><h2>Recent Topics</h2><p>Most recently active discussions appear first.</p></div></div>
+  <div id="topics" class="forum-topic-list"><div class="forum-empty">Loading forum…</div></div>
+</section>
+
+<section class="card forum-admin-card">
+  <details>
+    <summary>Commissioner Forum Controls</summary>
+    <div class="forum-admin-controls">
+      <input id="adminPassword" type="password" placeholder="Commissioner password">
+      <button id="toggleModeration" class="secondary">Enable Delete Controls</button>
+    </div>
+  </details>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+let moderation=false,topics=[];
+
+function showStatus(msg,type="ok"){const el=$("forumStatus");el.textContent=msg;el.className="status "+type;el.classList.remove("hidden");}
+function fmtDate(v){if(!v)return "";const d=new Date(v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
+function render(){
+  if(!topics.length){$("topics").innerHTML='<div class="forum-empty">No topics yet. Start the first discussion.</div>';return;}
+  $("topics").innerHTML=topics.map(t=>`<article class="forum-topic-card">
+    <a class="forum-topic-main" href="/forum/topic/${t.id}">
+      <div><h3>${esc(t.title)}</h3><p>${esc(t.message)}</p></div>
+      <div class="forum-topic-meta"><span>Started by <strong>${esc(t.author)}</strong></span><span>${t.reply_count||0} replies</span><span>Last activity ${esc(fmtDate(t.last_activity))}</span></div>
+    </a>
+    ${moderation?`<button class="forum-delete" onclick="deleteTopic(${t.id})">Delete Topic</button>`:""}
+  </article>`).join("");
+}
+async function loadTopics(){
+  const r=await fetch("/api/forum/topics");const d=await r.json();
+  if(!r.ok){showStatus(d.error||"Could not load forum.","error");return;}
+  topics=d.topics||[];render();
+}
+async function postTopic(){
+  const author=$("author").value.trim(),title=$("title").value.trim(),message=$("message").value.trim();
+  $("postTopic").disabled=true;
+  try{
+    const r=await fetch("/api/forum/topics",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({author,title,message})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not post topic.");
+    $("title").value="";$("message").value="";$("charCount").textContent="0 / 4000";showStatus("✓ Topic posted.","ok");await loadTopics();
+  }catch(e){showStatus(e.message,"error");}finally{$("postTopic").disabled=false;}
+}
+async function deleteTopic(id){
+  if(!confirm("Delete this topic and all replies?"))return;
+  const password=$("adminPassword").value;
+  const r=await fetch("/api/forum/admin/delete-topic",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,topic_id:id})});
+  const d=await r.json();if(!r.ok){showStatus(d.error||"Could not delete topic.","error");return;}
+  showStatus("✓ Topic deleted.","ok");await loadTopics();
+}
+$("postTopic").onclick=postTopic;
+$("message").addEventListener("input",e=>$("charCount").textContent=`${e.target.value.length} / 4000`);
+$("toggleModeration").onclick=()=>{moderation=!moderation;$("toggleModeration").textContent=moderation?"Hide Delete Controls":"Enable Delete Controls";render();};
+loadTopics();
+</script>
+</body></html>
