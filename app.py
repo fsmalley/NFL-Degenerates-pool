@@ -211,7 +211,16 @@ def normalize_game(game, week, index):
     except: away_score = None
     try: home_score = int(home_score) if home_score is not None else None
     except: home_score = None
-    status = str(pick(game,"status","game_status","game_state") or "scheduled").lower()
+    # NFLData is backed by the nflverse games/schedules data. That source does
+    # not reliably expose a textual game status. Instead, its `result` field is
+    # populated only after a game is complete (home score - away score) and is
+    # null for games that have not yet been played.
+    raw_status = pick(game, "status", "game_status", "game_state")
+    source_result = pick(game, "result")
+    explicit_final = is_game_final(raw_status)
+    result_is_final = source_result is not None and str(source_result).strip().lower() not in ("", "none", "null", "nan", "na")
+
+    status = "final" if (explicit_final or result_is_final) else str(raw_status or "scheduled").lower()
     winner = loser = margin = None
     if is_game_final(status):
         winner, loser, margin = calculate_result(away, home, away_score, home_score)
@@ -3372,6 +3381,23 @@ def run_v28_quality_checks():
 
     def add(name, passed, detail):
         checks.append({"name": name, "passed": bool(passed), "detail": detail})
+
+    # nflverse result-field completion recognition.
+    nflverse_final_probe = normalize_game({
+        "game_id":"2026_01_SEA_NE",
+        "away_team":"SEA",
+        "home_team":"NE",
+        "away_score":13,
+        "home_score":10,
+        "result":-3
+    }, 1, 0)
+    add_check(
+        "NFLData/nflverse completed-game recognition",
+        nflverse_final_probe.get("status") == "final"
+        and nflverse_final_probe.get("winner") == "SEA"
+        and nflverse_final_probe.get("margin") == 3,
+        f"Observed status={nflverse_final_probe.get('status')}, winner={nflverse_final_probe.get('winner')}, margin={nflverse_final_probe.get('margin')}."
+    )
 
     # Final status recognition.
     add(
