@@ -65,6 +65,16 @@
   </div>
 </section>
 
+<section class="card">
+  <h2>Automatic NFL Score Refresh</h2>
+  <p>Final scores are refreshed throughout the week. The system uses actual kickoff times, so Wednesday, Thursday, Saturday and other special game days are handled automatically.</p>
+  <div class="test-controls">
+    <input id="scoreRefreshAdminPassword" type="password" placeholder="Commissioner password">
+    <button class="primary" type="button" onclick="refreshScoresNow()">Refresh Scores Now</button>
+  </div>
+  <p id="scoreRefreshMessage" class="muted">Scheduled refresh requires the V2.13.2 Supabase Cron setup.</p>
+</section>
+
 <section class="card test-warning">
   <h2>Full Draft Test Controls</h2>
   <p>Start by seeding the full test pool. Then finalize one week, five weeks, ten weeks, or the entire season and verify that rankings and weekly scoring update.</p>
@@ -351,6 +361,24 @@ function renderMemberAccounts(){
     </div>
   </article>`).join("");
 }
+async function refreshScoresNow(){
+  const message=document.getElementById("scoreRefreshMessage");
+  const password=document.getElementById("scoreRefreshAdminPassword").value;
+  message.textContent="Refreshing NFL scores…";
+  try{
+    const r=await fetch("/api/admin/score-refresh",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||"Could not refresh scores.");
+    message.textContent=`✓ Week ${d.week} refreshed. ${d.final_games??0}/${d.game_count??0} games final.${d.next_week_staged?" Next week's schedule was also staged.":""}`;
+  }catch(e){
+    message.textContent=e.message;
+  }
+}
+
 async function loadMembers(){
   const password=document.getElementById("memberAdminPassword").value;
   if(!password){memberAdminMessage("Enter the Commissioner password.",false);return;}

@@ -419,3 +419,14 @@ See `V2_13_MEMBER_ACCOUNTS_NOTES.md` and `V2_13_DEPLOYMENT_CHECKLIST.md`.
 - Adds **Download New Credentials CSV** for temporary passwords issued during the current browser session.
 - Adds **Reset & Export Credential** for individual members.
 - No Supabase migration is required for V2.13.1.
+
+
+## V2.13.2 — Automatic Score Refresh
+- Schedule-aware automatic score refresh for all NFL game days.
+- Around games: refreshes allowed about every 20 minutes.
+- Away from games: about once daily.
+- Supabase Cron wake-up every 30 minutes.
+- Final-only pool scoring remains unchanged.
+- NFL Results refreshes every 2 minutes while open.
+- Commissioner manual refresh button added.
+- Fully final weeks automatically stage the next week's schedule.
