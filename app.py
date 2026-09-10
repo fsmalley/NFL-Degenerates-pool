@@ -256,8 +256,8 @@ def normalize_schedule_team(code):
     }
     return aliases.get(code, code)
 
-def fetch_espn_week_schedule(week):
-    """Return matchup -> ESPN kickoff timestamp for one NFL regular-season week."""
+def fetch_espn_week_scoreboard(week):
+    """Return current ESPN scoreboard data keyed by normalized away/home matchup."""
     r = requests.get(
         ESPN_SCOREBOARD_URL,
         params={"dates": SEASON, "seasontype": 2, "week": int(week), "limit": 100},
@@ -265,32 +265,50 @@ def fetch_espn_week_schedule(week):
     )
     r.raise_for_status()
     payload = r.json() if r.content else {}
-    schedule = {}
+    board = {}
 
     for event in payload.get("events") or []:
-        kickoff = str(event.get("date") or "").strip()
-        competitions = event.get("competitions") or []
-        if not competitions:
+        comps = event.get("competitions") or []
+        if not comps:
             continue
-
-        competitors = competitions[0].get("competitors") or []
+        comp = comps[0]
         away = home = ""
-        for competitor in competitors:
+        away_score = home_score = None
+        for competitor in comp.get("competitors") or []:
             team = competitor.get("team") or {}
             code = normalize_schedule_team(
                 team.get("abbreviation") or team.get("shortDisplayName") or team.get("name")
             )
+            raw_score = competitor.get("score")
+            try:
+                score = int(raw_score) if raw_score not in (None, "") else None
+            except (TypeError, ValueError):
+                score = None
             if competitor.get("homeAway") == "away":
-                away = code
+                away, away_score = code, score
             elif competitor.get("homeAway") == "home":
-                home = code
+                home, home_score = code, score
 
-        if away and home and kickoff:
-            schedule[(away, home)] = kickoff
-            # Pair lookup makes the enrichment resilient if source home/away is ever inverted.
-            schedule[(home, away)] = kickoff
+        if not away or not home:
+            continue
+        status = comp.get("status") or event.get("status") or {}
+        stype = status.get("type") or {}
+        state = str(stype.get("state") or "").lower()
+        item = {
+            "kickoff": str(event.get("date") or "").strip(),
+            "away_score": away_score,
+            "home_score": home_score,
+            "completed": bool(stype.get("completed")) or state == "post",
+            "state": state,
+        }
+        board[(away, home)] = item
+        board[(home, away)] = item
+    return board
 
-    return schedule
+
+def fetch_espn_week_schedule(week):
+    return {k: v.get("kickoff") for k, v in fetch_espn_week_scoreboard(week).items()}
+
 
 def sync_week(week):
     r = requests.get(
@@ -309,14 +327,13 @@ def sync_week(week):
         r.raise_for_status()
         raw = [g for g in games_from(r.json()) if int(g.get("week",-1) or -1) == week]
 
-    # NFLData remains the authoritative results source. ESPN is used to enrich
-    # the schedule with actual kickoff timestamps because NFLData commonly
-    # supplies date-only values for future games.
+    # NFLData remains the base/fallback source. ESPN supplies the current
+    # scoreboard state and kickoff timestamp when the matchup is available.
     try:
-        espn_schedule = fetch_espn_week_schedule(week)
+        espn_scoreboard = fetch_espn_week_scoreboard(week)
     except Exception as e:
-        espn_schedule = {}
-        print(f"ESPN SCHEDULE WARNING WEEK {week}: {type(e).__name__}: {e}", flush=True)
+        espn_scoreboard = {}
+        print(f"ESPN SCOREBOARD WARNING WEEK {week}: {type(e).__name__}: {e}", flush=True)
 
     normalized = []
     for i, game in enumerate(raw):
@@ -325,9 +342,29 @@ def sync_week(week):
             normalize_schedule_team(row.get("away_team")),
             normalize_schedule_team(row.get("home_team"))
         )
-        kickoff = espn_schedule.get(matchup)
-        if kickoff:
-            row["game_date"] = kickoff
+        espn = espn_scoreboard.get(matchup)
+        if espn:
+            if espn.get("kickoff"):
+                row["game_date"] = espn["kickoff"]
+            if espn.get("away_score") is not None:
+                row["away_score"] = espn["away_score"]
+            if espn.get("home_score") is not None:
+                row["home_score"] = espn["home_score"]
+
+            if espn.get("completed"):
+                row["status"] = "final"
+                winner, loser, margin = calculate_result(
+                    row.get("away_team"), row.get("home_team"),
+                    row.get("away_score"), row.get("home_score")
+                )
+                row["winner"] = winner
+                row["loser"] = loser
+                row["margin"] = margin
+            elif espn.get("state") == "in":
+                row["status"] = "in_progress"
+                row["winner"] = None
+                row["loser"] = None
+                row["margin"] = None
         normalized.append(row)
 
     sb_upsert("games", normalized, "id")
