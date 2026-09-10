@@ -28,9 +28,6 @@ if SUPABASE_URL.endswith("/rest/v1"):
     SUPABASE_URL = SUPABASE_URL[:-8].rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
-AUTO_SYNC_TOKEN = os.getenv("AUTO_SYNC_TOKEN", "")
-AUTO_SCORE_GAME_INTERVAL_MINUTES = max(10, int(os.getenv("AUTO_SCORE_GAME_INTERVAL_MINUTES", "20")))
-AUTO_SCORE_DAILY_INTERVAL_HOURS = max(1, int(os.getenv("AUTO_SCORE_DAILY_INTERVAL_HOURS", "20")))
 
 TEAMS = {
     "ARI":"Arizona Cardinals","ATL":"Atlanta Falcons","BAL":"Baltimore Ravens","BUF":"Buffalo Bills",
@@ -333,124 +330,6 @@ def get_week(week):
         g["away_name"] = TEAMS.get(g["away_team"], g["away_team"])
         g["home_name"] = TEAMS.get(g["home_team"], g["home_team"])
     return rows
-
-
-def _score_sync_setting_key(week):
-    return f"score_auto_sync_week_{int(week)}"
-
-
-def _parse_setting_datetime(value):
-    if not value:
-        return None
-    try:
-        raw = str(value).strip()
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        parsed = dt.datetime.fromisoformat(raw)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
-        return parsed.astimezone(dt.timezone.utc)
-    except Exception:
-        return None
-
-
-def record_score_sync(week, when=None):
-    when = when or dt.datetime.now(dt.timezone.utc)
-    sb_upsert(
-        "site_settings",
-        [{
-            "setting_key": _score_sync_setting_key(week),
-            "setting_value": when.isoformat(),
-            "updated_at": when.isoformat()
-        }],
-        "setting_key"
-    )
-
-
-def score_sync_due(week, games=None, now=None, force=False):
-    """Return whether the scheduler should contact the NFL score source now."""
-    week = max(1, min(18, int(week)))
-    now = now or dt.datetime.now(dt.timezone.utc)
-    games = games if games is not None else get_week(week)
-
-    if force:
-        return True, "manual"
-
-    last_sync = _parse_setting_datetime(get_site_setting(_score_sync_setting_key(week), ""))
-    game_window = False
-
-    # Use actual stored kickoff timestamps, so Wed/Thu/Sat/Mon/international games
-    # are naturally covered without hard-coded weekday assumptions.
-    for game in games:
-        kickoff = parse_game_datetime(game.get("game_date"))
-        if not kickoff:
-            continue
-        if kickoff - dt.timedelta(minutes=30) <= now <= kickoff + dt.timedelta(hours=8):
-            game_window = True
-            break
-        if now >= kickoff and not is_game_final(game) and now <= kickoff + dt.timedelta(hours=12):
-            game_window = True
-            break
-
-    interval = (
-        dt.timedelta(minutes=AUTO_SCORE_GAME_INTERVAL_MINUTES)
-        if game_window
-        else dt.timedelta(hours=AUTO_SCORE_DAILY_INTERVAL_HOURS)
-    )
-    mode = "game-window" if game_window else "daily"
-
-    if last_sync is None:
-        return True, mode
-    return (now - last_sync) >= interval, mode
-
-
-def scheduled_score_refresh(force=False):
-    """Refresh scores only when called by the scheduler or commissioner.
-
-    Normal member page views never call this function. That keeps browsing fast
-    and prevents user traffic from multiplying external NFLData requests.
-    """
-    now = dt.datetime.now(dt.timezone.utc)
-    week = dashboard_current_week()
-    try:
-        games = get_week(week)
-    except Exception:
-        games = []
-
-    due, mode = score_sync_due(week, games, now=now, force=force)
-    result = {
-        "ok": True,
-        "week": week,
-        "mode": mode,
-        "refreshed": False,
-        "checked_at": now.isoformat(),
-        "next_week_staged": False,
-    }
-
-    if not due:
-        result["last_sync"] = get_site_setting(_score_sync_setting_key(week), "")
-        result["message"] = "Refresh not due yet."
-        return result
-
-    sync_week(week)
-    record_score_sync(week, now)
-    games = get_week(week)
-    result["refreshed"] = True
-    result["last_sync"] = now.isoformat()
-    result["final_games"] = sum(1 for g in games if is_game_final(g))
-    result["game_count"] = len(games)
-
-    # When the current week is completely final, preload the following schedule.
-    if games and all(is_game_final(g) for g in games) and week < 18:
-        try:
-            sync_week(week + 1)
-            record_score_sync(week + 1, now)
-            result["next_week_staged"] = True
-            result["next_week"] = week + 1
-        except Exception as e:
-            result["next_week_error"] = str(e)
-
-    return result
 
 def ensure_players():
     rows = sb_get("draft_players", {"select":"id","limit":"1"})
@@ -974,7 +853,7 @@ def survivor_player_history(player_key):
 # Private Member Login (V2.10)
 # -----------------------------
 
-PUBLIC_ENDPOINTS = {"member_login", "health", "api_system_score_refresh", "static"}
+PUBLIC_ENDPOINTS = {"member_login", "health", "static"}
 ACCOUNT_GATE_ENDPOINTS = {
     "member_account_login",
     "member_account_logout",
@@ -2689,20 +2568,6 @@ def test_lab():
     return render_template("test_lab.html", season=SEASON)
 
 
-@app.route("/api/system/score-refresh")
-def api_system_score_refresh():
-    """Token-protected endpoint for Supabase Cron. No member session required."""
-    supplied = request.headers.get("X-Auto-Sync-Token", "") or request.args.get("token", "")
-    if not AUTO_SYNC_TOKEN:
-        return jsonify({"ok":False,"error":"AUTO_SYNC_TOKEN is not configured."}), 503
-    if not secrets.compare_digest(str(supplied), str(AUTO_SYNC_TOKEN)):
-        return jsonify({"ok":False,"error":"Invalid auto-sync token."}), 403
-    try:
-        return jsonify(scheduled_score_refresh(force=False))
-    except Exception as e:
-        print(f"AUTO SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
-        return jsonify({"ok":False,"error":str(e)}), 500
-
 
 @app.route("/api/admin/score-refresh", methods=["POST"])
 def api_admin_score_refresh():
@@ -2712,8 +2577,21 @@ def api_admin_score_refresh():
         return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured."}), 500
     if not secrets.compare_digest(str(supplied), str(ADMIN_PASSWORD)):
         return jsonify({"ok":False,"error":"Incorrect admin password."}), 403
+
     try:
-        return jsonify(scheduled_score_refresh(force=True))
+        requested_week = payload.get("week")
+        week = int(requested_week) if requested_week not in (None, "") else dashboard_current_week()
+        week = max(1, min(18, week))
+
+        sync_week(week)
+        games = get_week(week)
+
+        return jsonify({
+            "ok": True,
+            "week": week,
+            "game_count": len(games),
+            "final_games": sum(1 for g in games if is_game_final(g))
+        })
     except Exception as e:
         print(f"MANUAL SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":str(e)}), 500
@@ -2742,13 +2620,14 @@ def health():
 
 @app.route("/api/week/<int:week>")
 def api_week(week):
-    """Read stored scores only. External score synchronization is scheduler-only."""
     week=max(1,min(18,week))
     err=None
+    try: sync_week(week)
+    except Exception as e: err=str(e)
     try: games=get_week(week)
     except Exception as e:
         games=[]
-        err=str(e)
+        err=err or str(e)
     return jsonify({"week":week,"games":games,"sync_error":err})
 
 

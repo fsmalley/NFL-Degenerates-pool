@@ -66,13 +66,14 @@
 </section>
 
 <section class="card">
-  <h2>Automatic NFL Score Refresh</h2>
-  <p>Background score checks use actual kickoff times, so Wednesday, Thursday, Saturday, Sunday, Monday and special-schedule games are handled automatically. Normal member page views never contact the external score service.</p>
+  <h2>Manual NFL Score Refresh</h2>
+  <p>Use this to pull the latest NFL data for the current week on demand. This test version does not run automatically in the background.</p>
   <div class="test-controls">
-    <input id="scoreRefreshAdminPassword" type="password" placeholder="Commissioner password">
-    <button class="primary" type="button" onclick="refreshScoresNow()">Refresh Scores Now</button>
+    <input id="manualScoreAdminPassword" type="password" placeholder="Commissioner password">
+    <input id="manualScoreWeek" type="number" min="1" max="18" placeholder="Week (optional)">
+    <button class="primary" type="button" onclick="manualScoreRefresh()">Refresh Scores Now</button>
   </div>
-  <p id="scoreRefreshMessage" class="muted">Automatic scheduling is activated separately in Supabase after this version is verified.</p>
+  <p id="manualScoreMessage" class="muted">This is a manual-only stability test.</p>
 </section>
 
 <section class="card test-warning">
@@ -361,19 +362,23 @@ function renderMemberAccounts(){
     </div>
   </article>`).join("");
 }
-async function refreshScoresNow(){
-  const message=document.getElementById("scoreRefreshMessage");
-  const password=document.getElementById("scoreRefreshAdminPassword").value;
+async function manualScoreRefresh(){
+  const message=document.getElementById("manualScoreMessage");
+  const password=document.getElementById("manualScoreAdminPassword").value;
+  const week=document.getElementById("manualScoreWeek").value;
+
   message.textContent="Refreshing NFL scores…";
+
   try{
     const r=await fetch("/api/admin/score-refresh",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({password})
+      body:JSON.stringify({password,week})
     });
     const d=await r.json();
-    if(!r.ok)throw new Error(d.error||"Could not refresh scores.");
-    message.textContent=`✓ Week ${d.week} refreshed. ${d.final_games??0}/${d.game_count??0} games final.${d.next_week_staged?" Next week's schedule was also staged.":""}`;
+    if(!r.ok) throw new Error(d.error||"Could not refresh scores.");
+
+    message.textContent=`✓ Week ${d.week} refreshed. ${d.final_games}/${d.game_count} games final.`;
   }catch(e){
     message.textContent=e.message;
   }
