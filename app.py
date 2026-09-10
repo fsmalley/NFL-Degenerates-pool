@@ -421,7 +421,7 @@ def draft_data():
                 if g.get("winner") == team:
                     score = int(g["margin"])
                 elif g.get("loser") == team:
-                    score = -int(g["margin"])
+                    score = 0
                 elif g.get("winner") == "TIE" and team in (g.get("away_team"), g.get("home_team")):
                     score = 0
 
