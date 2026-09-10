@@ -56,12 +56,12 @@ async function refreshResults(){
   try{
     const r=await fetch("/api/week/"+week,{cache:"no-store"});
     const d=await r.json();
-    if(d.sync_error)notice.textContent="Refresh issue; stored data shown. "+d.sync_error;
-    else notice.textContent="Scores checked automatically. Final games update pool scoring when the source reports them complete.";
+    if(d.sync_error)notice.textContent="Stored-score read issue: "+d.sync_error;
+    else notice.textContent="Scores update automatically after scheduled background checks. Pool scoring uses final games only.";
     if(!d.games.length){games.innerHTML='<tr><td colspan="4">No games found.</td></tr>';return;}
     games.innerHTML=d.games.map(g=>{let w="—";if(g.winner==="TIE")w="TIE";else if(g.winner)w=g.winner===g.away_team?g.away_name:g.home_name;let diff=g.margin==null?"—":g.margin===0?"0":"+"+g.margin;return `<tr><td>${g.away_name} @ ${g.home_name}</td><td>${g.away_score??"—"} — ${g.home_score??"—"}</td><td>${w}</td><td><b>${diff}</b></td></tr>`}).join("");
   }catch(e){
-    notice.textContent="Could not refresh scores right now; stored data remains available.";
+    notice.textContent="Could not read stored scores right now.";
   }
 }
 refreshResults();

@@ -339,7 +339,7 @@ def _score_sync_setting_key(week):
     return f"score_auto_sync_week_{int(week)}"
 
 
-def _parse_iso_datetime(value):
+def _parse_setting_datetime(value):
     if not value:
         return None
     try:
@@ -368,7 +368,7 @@ def record_score_sync(week, when=None):
 
 
 def score_sync_due(week, games=None, now=None, force=False):
-    """Select refresh cadence from actual kickoff times, not weekday names."""
+    """Return whether the scheduler should contact the NFL score source now."""
     week = max(1, min(18, int(week)))
     now = now or dt.datetime.now(dt.timezone.utc)
     games = games if games is not None else get_week(week)
@@ -376,9 +376,11 @@ def score_sync_due(week, games=None, now=None, force=False):
     if force:
         return True, "manual"
 
-    last_sync = _parse_iso_datetime(get_site_setting(_score_sync_setting_key(week), ""))
+    last_sync = _parse_setting_datetime(get_site_setting(_score_sync_setting_key(week), ""))
     game_window = False
 
+    # Use actual stored kickoff timestamps, so Wed/Thu/Sat/Mon/international games
+    # are naturally covered without hard-coded weekday assumptions.
     for game in games:
         kickoff = parse_game_datetime(game.get("game_date"))
         if not kickoff:
@@ -402,15 +404,14 @@ def score_sync_due(week, games=None, now=None, force=False):
     return (now - last_sync) >= interval, mode
 
 
-def smart_score_refresh(force=False):
-    """
-    Refresh the most relevant NFL week.
-    Around any scheduled kickoff, checks are frequent. Away from games, about daily.
-    When a week becomes fully final, the next week's schedule is staged.
+def scheduled_score_refresh(force=False):
+    """Refresh scores only when called by the scheduler or commissioner.
+
+    Normal member page views never call this function. That keeps browsing fast
+    and prevents user traffic from multiplying external NFLData requests.
     """
     now = dt.datetime.now(dt.timezone.utc)
     week = dashboard_current_week()
-
     try:
         games = get_week(week)
     except Exception:
@@ -422,22 +423,24 @@ def smart_score_refresh(force=False):
         "week": week,
         "mode": mode,
         "refreshed": False,
+        "checked_at": now.isoformat(),
         "next_week_staged": False,
-        "checked_at": now.isoformat()
     }
 
     if not due:
         result["last_sync"] = get_site_setting(_score_sync_setting_key(week), "")
+        result["message"] = "Refresh not due yet."
         return result
 
     sync_week(week)
     record_score_sync(week, now)
-    result["refreshed"] = True
     games = get_week(week)
+    result["refreshed"] = True
+    result["last_sync"] = now.isoformat()
     result["final_games"] = sum(1 for g in games if is_game_final(g))
     result["game_count"] = len(games)
-    result["last_sync"] = now.isoformat()
 
+    # When the current week is completely final, preload the following schedule.
     if games and all(is_game_final(g) for g in games) and week < 18:
         try:
             sync_week(week + 1)
@@ -2443,10 +2446,6 @@ def dashboard_announcement():
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    try:
-        smart_score_refresh(force=False)
-    except Exception as e:
-        print(f"DASHBOARD SCORE REFRESH WARNING: {type(e).__name__}: {e}", flush=True)
     week = dashboard_current_week()
     account = current_member_account(refresh=True) or {}
     if account:
@@ -2690,17 +2689,16 @@ def test_lab():
     return render_template("test_lab.html", season=SEASON)
 
 
-
 @app.route("/api/system/score-refresh")
 def api_system_score_refresh():
-    """Protected endpoint for Supabase Cron."""
+    """Token-protected endpoint for Supabase Cron. No member session required."""
     supplied = request.headers.get("X-Auto-Sync-Token", "") or request.args.get("token", "")
     if not AUTO_SYNC_TOKEN:
         return jsonify({"ok":False,"error":"AUTO_SYNC_TOKEN is not configured."}), 503
     if not secrets.compare_digest(str(supplied), str(AUTO_SYNC_TOKEN)):
         return jsonify({"ok":False,"error":"Invalid auto-sync token."}), 403
     try:
-        return jsonify(smart_score_refresh(force=False))
+        return jsonify(scheduled_score_refresh(force=False))
     except Exception as e:
         print(f"AUTO SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":str(e)}), 500
@@ -2715,7 +2713,7 @@ def api_admin_score_refresh():
     if not secrets.compare_digest(str(supplied), str(ADMIN_PASSWORD)):
         return jsonify({"ok":False,"error":"Incorrect admin password."}), 403
     try:
-        return jsonify(smart_score_refresh(force=True))
+        return jsonify(scheduled_score_refresh(force=True))
     except Exception as e:
         print(f"MANUAL SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":str(e)}), 500
@@ -2744,14 +2742,13 @@ def health():
 
 @app.route("/api/week/<int:week>")
 def api_week(week):
+    """Read stored scores only. External score synchronization is scheduler-only."""
     week=max(1,min(18,week))
     err=None
-    try: sync_week(week)
-    except Exception as e: err=str(e)
     try: games=get_week(week)
     except Exception as e:
         games=[]
-        err=err or str(e)
+        err=str(e)
     return jsonify({"week":week,"games":games,"sync_error":err})
 
 
@@ -2767,10 +2764,6 @@ def api_admin_check():
 @app.route("/api/draft", methods=["GET","POST"])
 def api_draft():
     if request.method=="GET":
-        try:
-            smart_score_refresh(force=False)
-        except Exception as e:
-            print(f"DRAFT SCORE REFRESH WARNING: {type(e).__name__}: {e}", flush=True)
         salary_config = draft_salary_config()
         return jsonify({
             "players":draft_data(),

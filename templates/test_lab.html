@@ -67,12 +67,12 @@
 
 <section class="card">
   <h2>Automatic NFL Score Refresh</h2>
-  <p>Final scores are refreshed throughout the week. The system uses actual kickoff times, so Wednesday, Thursday, Saturday and other special game days are handled automatically.</p>
+  <p>Background score checks use actual kickoff times, so Wednesday, Thursday, Saturday, Sunday, Monday and special-schedule games are handled automatically. Normal member page views never contact the external score service.</p>
   <div class="test-controls">
     <input id="scoreRefreshAdminPassword" type="password" placeholder="Commissioner password">
     <button class="primary" type="button" onclick="refreshScoresNow()">Refresh Scores Now</button>
   </div>
-  <p id="scoreRefreshMessage" class="muted">Scheduled refresh requires the V2.13.2 Supabase Cron setup.</p>
+  <p id="scoreRefreshMessage" class="muted">Automatic scheduling is activated separately in Supabase after this version is verified.</p>
 </section>
 
 <section class="card test-warning">
