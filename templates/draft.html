@@ -66,7 +66,7 @@
   <div class="hero-actions {% if session.get('member_role') != 'COMMISSIONER' %}hidden{% endif %}">
     <button id="editBtn" class="secondary">Commissioner Mode</button>
     <button id="salarySettingsBtn" class="secondary hidden">Salary Settings</button>
-    <button id="cleanupUnusedBtn" class="secondary hidden">Delete Unused Slots</button>
+    <button id="restorePlayersBtn" class="secondary hidden">Restore Mike P & Yong</button>
     <button id="saveBtn" class="primary hidden">Save Changes</button>
     <button id="cancelBtn" class="ghost hidden">Cancel</button>
   </div>
@@ -377,7 +377,7 @@ $("editBtn").onclick = async () => {
   originalPlayers = JSON.parse(JSON.stringify(players));
   $("editBtn").classList.add("hidden");
   $("salarySettingsBtn").classList.remove("hidden");
-  $("cleanupUnusedBtn").classList.remove("hidden");
+  $("restorePlayersBtn").classList.remove("hidden");
   $("saveBtn").classList.remove("hidden");
   $("cancelBtn").classList.remove("hidden");
   $("weeklyPanel").classList.add("hidden");
@@ -391,7 +391,7 @@ $("cancelBtn").onclick = () => {
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
   $("salarySettingsBtn").classList.add("hidden");
-  $("cleanupUnusedBtn").classList.add("hidden");
+  $("restorePlayersBtn").classList.add("hidden");
   $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
@@ -448,7 +448,7 @@ $("saveBtn").onclick = async () => {
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
   $("salarySettingsBtn").classList.add("hidden");
-  $("cleanupUnusedBtn").classList.add("hidden");
+  $("restorePlayersBtn").classList.add("hidden");
   $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
@@ -457,23 +457,24 @@ $("saveBtn").onclick = async () => {
 };
 
 
-$("cleanupUnusedBtn").onclick = async () => {
+$("restorePlayersBtn").onclick = async () => {
   if (!editing || !adminPassword) return;
-  if (!confirm("Delete all unused Draft player slots with no teams assigned? Active players will not be affected.")) return;
-  showStatus("Deleting unused Draft slots…", "ok");
-  const r = await fetch("/api/draft/delete-unused", {
+  if (!confirm("Restore Mike P and Yong with their original 8-team Draft rosters?")) return;
+
+  showStatus("Restoring Mike P and Yong…", "ok");
+  const r = await fetch("/api/draft/restore-v21316", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({password:adminPassword})
   });
   const d = await r.json();
   if (!r.ok) {
-    showStatus(d.error || "Cleanup failed.", "error");
+    showStatus(d.error || "Restore failed.", "error");
     return;
   }
   players = d.players || players;
   originalPlayers = JSON.parse(JSON.stringify(players));
-  showStatus(d.message || "Unused Draft slots deleted.", "ok");
+  showStatus(d.message || "Players restored.", "ok");
   render();
 };
 

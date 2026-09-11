@@ -393,8 +393,15 @@ def ensure_players():
 def draft_data():
     ensure_players()
     players = sb_get("draft_players", {"select":"*","order":"id.asc"})
-    # Hide unused Draft slots from member-facing standings.
-    players = [p for p in players if any((p.get(f"team{n}") or "").strip() for n in range(1,9))]
+    # Hide only obvious unused placeholder Draft slots from member-facing standings.
+    # Real named players are never hidden merely because their roster is empty.
+    def _is_unused_placeholder(p):
+        name = str(p.get("player_name") or "").strip()
+        no_teams = not any((p.get(f"team{n}") or "").strip() for n in range(1,9))
+        placeholder_name = bool(re.fullmatch(r"(?:x\d+|player\s+\d+)", name, flags=re.I))
+        return no_teams and placeholder_name
+
+    players = [p for p in players if not _is_unused_placeholder(p)]
     games = sb_get("games", {"select":"*","season":f"eq.{SEASON}"})
 
     for p in players:
@@ -2825,20 +2832,93 @@ def api_draft_salary_settings():
 
 @app.route("/api/draft/delete-unused", methods=["POST"])
 def api_draft_delete_unused():
+    # V2.13.1.6 safety change: unused Draft slots are hidden, never deleted.
+    return jsonify({
+        "ok":False,
+        "error":"Permanent deletion of unused Draft slots has been disabled. Placeholder rows are hidden instead."
+    }),410
+
+
+@app.route("/api/draft/restore-v21316", methods=["POST"])
+def api_draft_restore_v21316():
     payload = request.get_json(silent=True) or {}
     if not ADMIN_PASSWORD:
         return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured on the server."}),500
     if payload.get("password","") != ADMIN_PASSWORD:
         return jsonify({"ok":False,"error":"Incorrect admin password."}),403
 
-    rows = sb_get("draft_players", {"select":"*","order":"id.asc"})
-    unused = [p for p in rows if not any((p.get(f"team{n}") or "").strip() for n in range(1,9))]
-    for player in unused:
-        sb_delete("draft_players", {"id":f"eq.{int(player['id'])}"})
+    restore_rows = [
+        {
+            "player_name":"Mike P",
+            "teams":["LAR","LAC","CIN","DEN","NE","NO","CHI","NYG"]
+        },
+        {
+            "player_name":"Yong",
+            "teams":["LAR","DET","CIN","MIA","NE","ARI","CAR","NYJ"]
+        }
+    ]
+
+    existing = sb_get("draft_players", {"select":"*","order":"id.asc"})
+    used_ids = {int(r["id"]) for r in existing if r.get("id") is not None}
+    by_name = {
+        re.sub(r"[^a-z0-9]+","",str(r.get("player_name") or "").lower()): r
+        for r in existing
+    }
+
+    # Reuse each member account's prior draft_player_id when available, so the
+    # personalized dashboard linkage is preserved.
+    try:
+        members = sb_get("member_accounts", {"select":"id,display_name,username,draft_player_id","order":"id.asc"})
+    except Exception:
+        members = []
+
+    def key(v):
+        return re.sub(r"[^a-z0-9]+","",str(v or "").lower())
+
+    next_id = max(used_ids or {0}) + 1
+    restored = []
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    for item in restore_rows:
+        k = key(item["player_name"])
+        current = by_name.get(k)
+
+        target_id = int(current["id"]) if current and current.get("id") is not None else None
+        member = next((m for m in members if key(m.get("display_name")) == k or key(m.get("username")) == k), None)
+
+        if target_id is None and member and member.get("draft_player_id") is not None:
+            candidate = int(member["draft_player_id"])
+            if candidate not in used_ids:
+                target_id = candidate
+
+        if target_id is None:
+            while next_id in used_ids:
+                next_id += 1
+            target_id = next_id
+            next_id += 1
+
+        row = {"id":target_id, "player_name":item["player_name"], "updated_at":now}
+        for n, team in enumerate(item["teams"], 1):
+            row[f"team{n}"] = team
+        sb_upsert("draft_players", [row], "id")
+        used_ids.add(target_id)
+        restored.append({"id":target_id,"player_name":item["player_name"]})
+
+        # If a matching member account exists but points elsewhere, repair the link.
+        if member and int(member.get("draft_player_id") or 0) != target_id:
+            r = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/member_accounts",
+                headers=sb_headers({"Prefer":"return=minimal"}),
+                params={"id":f"eq.{int(member['id'])}"},
+                json={"draft_player_id":target_id,"updated_at":now},
+                timeout=20
+            )
+            r.raise_for_status()
+
     return jsonify({
         "ok":True,
-        "deleted":len(unused),
-        "message":f"Deleted {len(unused)} unused Draft slot(s).",
+        "message":"Mike P and Yong restored safely.",
+        "restored":restored,
         "players":draft_data()
     })
 
