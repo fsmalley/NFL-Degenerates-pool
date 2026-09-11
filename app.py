@@ -1391,7 +1391,7 @@ def member_identity_options():
     try:
         draft_rows = sb_get(
             "draft_players",
-            {"select":"id,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+            {"select":"id,player_name","order":"player_name.asc"}
         )
     except Exception:
         draft_rows = []
@@ -1450,7 +1450,7 @@ def api_admin_members():
         try:
             draft_rows = sb_get(
                 "draft_players",
-                {"select":"id,player_name","season":f"eq.{SEASON}","order":"player_name.asc"}
+                {"select":"id,player_name","order":"player_name.asc"}
             )
             existing = sb_get("member_accounts", {"select":"id,username_key,draft_player_id"})
         except Exception as e:
