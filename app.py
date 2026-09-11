@@ -1607,6 +1607,38 @@ def api_admin_members():
                 detail = str(e)
             return jsonify({"ok":False,"error":"Could not create member account. "+detail}),400
 
+    if action == "delete":
+        try:
+            account_id = int(payload.get("id"))
+        except Exception:
+            return jsonify({"ok":False,"error":"A valid member account is required."}),400
+
+        account = get_member_account_by_id(account_id)
+        if not account:
+            return jsonify({"ok":False,"error":"Member account not found."}),404
+
+        # Safety: Commissioner accounts cannot be deleted from this screen.
+        # This action removes ONLY the login/member account row. It does not
+        # delete Draft players, Survivor/Confidence records, forum posts, or
+        # other pool history.
+        if str(account.get("role") or "").upper() == "COMMISSIONER":
+            return jsonify({
+                "ok":False,
+                "error":"Commissioner accounts cannot be deleted from this screen."
+            }),400
+
+        try:
+            sb_delete("member_accounts", {"id":f"eq.{account_id}"})
+        except Exception as e:
+            print(f"MEMBER ACCOUNT DELETE ERROR: {type(e).__name__}: {e}", flush=True)
+            return jsonify({"ok":False,"error":"Could not delete member account."}),500
+
+        return jsonify({
+            "ok":True,
+            "message":f"Member account deleted for {account.get('display_name') or account.get('username')}.",
+            "deleted_id":account_id
+        })
+
     if action in ("update","reset_password"):
         try:
             account_id = int(payload.get("id"))

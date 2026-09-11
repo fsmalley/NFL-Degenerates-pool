@@ -359,6 +359,9 @@ function renderMemberAccounts(){
       <input data-reset-password type="text" maxlength="100" placeholder="New temporary password">
       <button type="button" onclick="resetMemberPassword(${m.id})">Reset Password</button>
       <button class="secondary" type="button" onclick="resetMemberPassword(${m.id},true)">Reset & Export Credential</button>
+      ${String(m.role||"").toUpperCase()==="COMMISSIONER"
+        ? '<button class="secondary member-delete-button" type="button" disabled title="Commissioner accounts cannot be deleted here">Delete Account</button>'
+        : `<button class="secondary member-delete-button" type="button" onclick="deleteMemberAccount(${m.id})">Delete Account</button>`}
     </div>
   </article>`).join("");
 }
@@ -465,6 +468,29 @@ async function saveMember(id){
     memberAdminMessage("✓ "+d.message,true);await loadMembers();
   }catch(e){memberAdminMessage(e.message,false);}
 }
+async function deleteMemberAccount(id){
+  const password=document.getElementById("memberAdminPassword").value;
+  const member=(memberAdminState.members||[]).find(m=>Number(m.id)===Number(id));
+  if(!member){memberAdminMessage("Member account not found in the current list.",false);return;}
+  if(String(member.role||"").toUpperCase()==="COMMISSIONER"){
+    memberAdminMessage("Commissioner accounts cannot be deleted from this screen.",false);
+    return;
+  }
+  const label=`${member.display_name||"Member"} (${member.username||"no username"})`;
+  const warning=`Delete login account for ${label}?\n\nThis removes ONLY the member login account. Draft, Survivor, Confidence, forum, and pool history will remain.`;
+  if(!confirm(warning))return;
+  try{
+    const r=await fetch("/api/admin/members",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password,action:"delete",id})
+    });
+    const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not delete member account.");
+    memberAdminMessage("✓ "+d.message,true);
+    await loadMembers();
+  }catch(e){memberAdminMessage(e.message,false);}
+}
+
 async function resetMemberPassword(id,exportAfter=false){
   const card=memberCard(id),password=document.getElementById("memberAdminPassword").value;
   const temporary_password=card?.querySelector("[data-reset-password]")?.value||"";
