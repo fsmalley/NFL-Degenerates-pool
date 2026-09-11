@@ -1607,36 +1607,6 @@ def api_admin_members():
                 detail = str(e)
             return jsonify({"ok":False,"error":"Could not create member account. "+detail}),400
 
-    if action == "delete":
-        try:
-            account_id = int(payload.get("id"))
-        except Exception:
-            return jsonify({"ok":False,"error":"A valid member account is required."}),400
-
-        account = get_member_account_by_id(account_id)
-        if not account:
-            return jsonify({"ok":False,"error":"Member account not found."}),404
-
-        # Safety rule: Commissioner accounts are never deletable here.
-        if str(account.get("role") or "").upper() == "COMMISSIONER":
-            return jsonify({
-                "ok":False,
-                "error":"Commissioner accounts cannot be deleted from this screen."
-            }),400
-
-        try:
-            # Delete ONLY the login/member account row.
-            # Draft/Survivor/Confidence/forum/pool-history data is untouched.
-            sb_delete("member_accounts", {"id":f"eq.{account_id}"})
-        except Exception as e:
-            return jsonify({"ok":False,"error":f"Could not delete member account: {e}"}),500
-
-        return jsonify({
-            "ok":True,
-            "message":f"Member account deleted for {account.get('display_name') or account.get('username')}.",
-            "deleted_id":account_id
-        })
-
     if action in ("update","reset_password"):
         try:
             account_id = int(payload.get("id"))
@@ -2684,24 +2654,9 @@ def api_admin_score_refresh():
 
 @app.route("/health")
 def health():
-    try:
-        sb_get("draft_players", {"select":"id","limit":"1"})
-        sb_get("survivor_picks", {"select":"id","limit":"1"})
-        sb_get("survivor_players", {"select":"id","limit":"1"})
-        sb_get("survivor_week_settings", {"select":"id","limit":"1"})
-        sb_get("draft_salary_settings", {"select":"id","limit":"1"})
-        sb_get("draft_team_values", {"select":"id","limit":"1"})
-        sb_get("confidence_players", {"select":"id","limit":"1"})
-        sb_get("confidence_entries", {"select":"id","limit":"1"})
-        sb_get("confidence_picks", {"select":"id","limit":"1"})
-        sb_get("site_settings", {"select":"setting_key","limit":"1"})
-        sb_get("forum_topics", {"select":"id","limit":"1"})
-        sb_get("forum_posts", {"select":"id","limit":"1"})
-        sb_get("member_accounts", {"select":"id","limit":"1"})
-        return jsonify({"status":"ok","database":"supabase","season":SEASON,"checks":["draft","survivor","settings","draft_salary","confidence","private_login","member_accounts","forum"]}), 200
-    except Exception as e:
-        print(f"HEALTH CHECK ERROR: {type(e).__name__}: {e}", flush=True)
-        return jsonify({"status":"error","error":str(e)}), 500
+    # Render's health probe must stay lightweight and independent of external services.
+    # Database/service diagnostics belong in commissioner tools, not the platform liveness check.
+    return jsonify({"status":"ok","season":SEASON}), 200
 
 @app.route("/api/week/<int:week>")
 def api_week(week):
