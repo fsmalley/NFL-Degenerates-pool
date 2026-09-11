@@ -66,6 +66,7 @@
   <div class="hero-actions {% if session.get('member_role') != 'COMMISSIONER' %}hidden{% endif %}">
     <button id="editBtn" class="secondary">Commissioner Mode</button>
     <button id="salarySettingsBtn" class="secondary hidden">Salary Settings</button>
+    <button id="cleanupUnusedBtn" class="secondary hidden">Delete Unused Slots</button>
     <button id="saveBtn" class="primary hidden">Save Changes</button>
     <button id="cancelBtn" class="ghost hidden">Cancel</button>
   </div>
@@ -376,6 +377,7 @@ $("editBtn").onclick = async () => {
   originalPlayers = JSON.parse(JSON.stringify(players));
   $("editBtn").classList.add("hidden");
   $("salarySettingsBtn").classList.remove("hidden");
+  $("cleanupUnusedBtn").classList.remove("hidden");
   $("saveBtn").classList.remove("hidden");
   $("cancelBtn").classList.remove("hidden");
   $("weeklyPanel").classList.add("hidden");
@@ -389,6 +391,7 @@ $("cancelBtn").onclick = () => {
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
   $("salarySettingsBtn").classList.add("hidden");
+  $("cleanupUnusedBtn").classList.add("hidden");
   $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
@@ -445,6 +448,7 @@ $("saveBtn").onclick = async () => {
   adminPassword = "";
   $("editBtn").classList.remove("hidden");
   $("salarySettingsBtn").classList.add("hidden");
+  $("cleanupUnusedBtn").classList.add("hidden");
   $("salarySettingsPanel").classList.add("hidden");
   $("saveBtn").classList.add("hidden");
   $("cancelBtn").classList.add("hidden");
@@ -452,6 +456,26 @@ $("saveBtn").onclick = async () => {
   render();
 };
 
+
+$("cleanupUnusedBtn").onclick = async () => {
+  if (!editing || !adminPassword) return;
+  if (!confirm("Delete all unused Draft player slots with no teams assigned? Active players will not be affected.")) return;
+  showStatus("Deleting unused Draft slots…", "ok");
+  const r = await fetch("/api/draft/delete-unused", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({password:adminPassword})
+  });
+  const d = await r.json();
+  if (!r.ok) {
+    showStatus(d.error || "Cleanup failed.", "error");
+    return;
+  }
+  players = d.players || players;
+  originalPlayers = JSON.parse(JSON.stringify(players));
+  showStatus(d.message || "Unused Draft slots deleted.", "ok");
+  render();
+};
 
 function renderSalarySettings() {
   $("salaryCapInput").value = salaryCap;

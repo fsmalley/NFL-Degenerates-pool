@@ -393,6 +393,8 @@ def ensure_players():
 def draft_data():
     ensure_players()
     players = sb_get("draft_players", {"select":"*","order":"id.asc"})
+    # Hide unused Draft slots from member-facing standings.
+    players = [p for p in players if any((p.get(f"team{n}") or "").strip() for n in range(1,9))]
     games = sb_get("games", {"select":"*","season":f"eq.{SEASON}"})
 
     for p in players:
@@ -2819,6 +2821,26 @@ def api_draft_salary_settings():
     except Exception as e:
         print(f"DRAFT SALARY SETTINGS ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":"Could not save Draft Pool salary settings."}),500
+
+
+@app.route("/api/draft/delete-unused", methods=["POST"])
+def api_draft_delete_unused():
+    payload = request.get_json(silent=True) or {}
+    if not ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured on the server."}),500
+    if payload.get("password","") != ADMIN_PASSWORD:
+        return jsonify({"ok":False,"error":"Incorrect admin password."}),403
+
+    rows = sb_get("draft_players", {"select":"*","order":"id.asc"})
+    unused = [p for p in rows if not any((p.get(f"team{n}") or "").strip() for n in range(1,9))]
+    for player in unused:
+        sb_delete("draft_players", {"id":f"eq.{int(player['id'])}"})
+    return jsonify({
+        "ok":True,
+        "deleted":len(unused),
+        "message":f"Deleted {len(unused)} unused Draft slot(s).",
+        "players":draft_data()
+    })
 
 
 @app.route("/api/survivor/pick", methods=["POST"])
