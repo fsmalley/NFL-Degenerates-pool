@@ -2841,86 +2841,10 @@ def api_draft_delete_unused():
 
 @app.route("/api/draft/restore-v21316", methods=["POST"])
 def api_draft_restore_v21316():
-    payload = request.get_json(silent=True) or {}
-    if not ADMIN_PASSWORD:
-        return jsonify({"ok":False,"error":"ADMIN_PASSWORD is not configured on the server."}),500
-    if payload.get("password","") != ADMIN_PASSWORD:
-        return jsonify({"ok":False,"error":"Incorrect admin password."}),403
-
-    restore_rows = [
-        {
-            "player_name":"Mike P",
-            "teams":["LAR","LAC","CIN","DEN","NE","NO","CHI","NYG"]
-        },
-        {
-            "player_name":"Yong",
-            "teams":["LAR","DET","CIN","MIA","NE","ARI","CAR","NYJ"]
-        }
-    ]
-
-    existing = sb_get("draft_players", {"select":"*","order":"id.asc"})
-    used_ids = {int(r["id"]) for r in existing if r.get("id") is not None}
-    by_name = {
-        re.sub(r"[^a-z0-9]+","",str(r.get("player_name") or "").lower()): r
-        for r in existing
-    }
-
-    # Reuse each member account's prior draft_player_id when available, so the
-    # personalized dashboard linkage is preserved.
-    try:
-        members = sb_get("member_accounts", {"select":"id,display_name,username,draft_player_id","order":"id.asc"})
-    except Exception:
-        members = []
-
-    def key(v):
-        return re.sub(r"[^a-z0-9]+","",str(v or "").lower())
-
-    next_id = max(used_ids or {0}) + 1
-    restored = []
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-
-    for item in restore_rows:
-        k = key(item["player_name"])
-        current = by_name.get(k)
-
-        target_id = int(current["id"]) if current and current.get("id") is not None else None
-        member = next((m for m in members if key(m.get("display_name")) == k or key(m.get("username")) == k), None)
-
-        if target_id is None and member and member.get("draft_player_id") is not None:
-            candidate = int(member["draft_player_id"])
-            if candidate not in used_ids:
-                target_id = candidate
-
-        if target_id is None:
-            while next_id in used_ids:
-                next_id += 1
-            target_id = next_id
-            next_id += 1
-
-        row = {"id":target_id, "player_name":item["player_name"], "updated_at":now}
-        for n, team in enumerate(item["teams"], 1):
-            row[f"team{n}"] = team
-        sb_upsert("draft_players", [row], "id")
-        used_ids.add(target_id)
-        restored.append({"id":target_id,"player_name":item["player_name"]})
-
-        # If a matching member account exists but points elsewhere, repair the link.
-        if member and int(member.get("draft_player_id") or 0) != target_id:
-            r = requests.patch(
-                f"{SUPABASE_URL}/rest/v1/member_accounts",
-                headers=sb_headers({"Prefer":"return=minimal"}),
-                params={"id":f"eq.{int(member['id'])}"},
-                json={"draft_player_id":target_id,"updated_at":now},
-                timeout=20
-            )
-            r.raise_for_status()
-
     return jsonify({
-        "ok":True,
-        "message":"Mike P and Yong restored safely.",
-        "restored":restored,
-        "players":draft_data()
-    })
+        "ok": False,
+        "error": "The one-time Mike P/Yong recovery tool has been retired."
+    }), 410
 
 
 @app.route("/api/survivor/pick", methods=["POST"])
@@ -3762,3 +3686,58 @@ def api_test_lab_reset():
 
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.getenv("PORT","5000")),debug=False)
+
+
+@app.route("/api/admin/member-account-delete", methods=["POST"])
+def api_admin_member_account_delete():
+    """Delete only a login/member_accounts row. Pool records are intentionally preserved."""
+    data = request.get_json(silent=True) or {}
+    admin_password = str(data.get("admin_password") or "").strip()
+    member_id = data.get("member_id")
+
+    if not ADMIN_PASSWORD or admin_password != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Commissioner password is incorrect."}), 403
+
+    try:
+        member_id = int(member_id)
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid member account id."}), 400
+
+    try:
+        rows = sb_get(
+            "member_accounts",
+            {"select":"id,username,display_name,role,active", "id":f"eq.{member_id}"}
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Could not load member account: {e}"}), 500
+
+    if not rows:
+        return jsonify({"ok": False, "error": "Member account was not found."}), 404
+
+    member = rows[0]
+    role = str(member.get("role") or "").upper()
+    if role == "COMMISSIONER":
+        return jsonify({
+            "ok": False,
+            "error": "Commissioner accounts cannot be deleted from this screen."
+        }), 400
+
+    try:
+        r = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/member_accounts",
+            headers=sb_headers(),
+            params={"id": f"eq.{member_id}"}
+        )
+        r.raise_for_status()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Could not delete member account: {e}"}), 500
+
+    return jsonify({
+        "ok": True,
+        "deleted": {
+            "id": member.get("id"),
+            "username": member.get("username"),
+            "display_name": member.get("display_name")
+        }
+    })
+
