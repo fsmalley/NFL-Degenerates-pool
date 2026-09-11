@@ -359,14 +359,42 @@ function renderMemberAccounts(){
       <input data-reset-password type="text" maxlength="100" placeholder="New temporary password">
       <button type="button" onclick="resetMemberPassword(${m.id})">Reset Password</button>
       <button class="secondary" type="button" onclick="resetMemberPassword(${m.id},true)">Reset & Export Credential</button>
-<button type="button"
-        class="danger"
-        onclick="deleteMemberAccount({{ m.id }}, {{ (m.display_name or '')|tojson }}, {{ (m.username or '')|tojson }}, {{ (m.role or '')|tojson }})">
-    Delete Account
-</button>
+      ${String(m.role||"").toUpperCase()==="COMMISSIONER"
+        ? '<button class="secondary" type="button" disabled title="Commissioner accounts cannot be deleted here">Delete Account</button>'
+        : `<button class="secondary member-delete-button" type="button" onclick="deleteMemberAccount(${m.id}, ${JSON.stringify(m.display_name||"")}, ${JSON.stringify(m.username||"")})">Delete Account</button>`}
     </div>
   </article>`).join("");
 }
+async function deleteMemberAccount(id, displayName, username){
+  const password=document.getElementById("memberAdminPassword").value;
+  if(!password){
+    memberAdminMessage("Enter the Commissioner password first.",false);
+    return;
+  }
+
+  const who=`${displayName || "(no display name)"} (${username || "no username"})`;
+  const confirmed=confirm(
+    `Delete member account ${who}?\n\n`+
+    `This removes ONLY this login/member account.\n`+
+    `Draft, Survivor, Confidence, forum, and pool history will remain.`
+  );
+  if(!confirmed)return;
+
+  memberAdminMessage(`Deleting member account ${who}…`,true);
+  try{
+    const r=await fetch("/api/admin/members",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({password,action:"delete",id})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||"Could not delete member account.");
+    await loadMembers();
+  }catch(e){
+    memberAdminMessage(e.message,false);
+  }
+}
+
 async function manualScoreRefresh(){
   const message=document.getElementById("manualScoreMessage");
   const password=document.getElementById("manualScoreAdminPassword").value;
@@ -730,47 +758,6 @@ function render(d){
   }).join("") : '<tr><td colspan="4">No test data yet.</td></tr>';
 }
 document.getElementById("password").addEventListener("change",load);
-
-async function deleteMemberAccount(memberId, displayName, username, role) {
-    if ((role || "").toUpperCase() === "COMMISSIONER") {
-        alert("Commissioner accounts cannot be deleted from this screen.");
-        return;
-    }
-
-    const who = `${displayName || "(no display name)"} (${username || "no username"})`;
-    const ok = confirm(
-        `Delete member account ${who}?\n\n` +
-        `This deletes ONLY the login/member account.\n` +
-        `Draft, Survivor, Confidence, forum, and pool history will NOT be deleted.`
-    );
-    if (!ok) return;
-
-    let adminPassword = window.adminPassword || "";
-    if (!adminPassword) {
-        adminPassword = prompt("Enter Commissioner password:");
-        if (!adminPassword) return;
-    }
-
-    try {
-        const res = await fetch("/api/admin/member-account-delete", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-                member_id: memberId,
-                admin_password: adminPassword
-            })
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-            throw new Error(data.error || "Delete failed.");
-        }
-        alert(`Deleted member account: ${who}`);
-        location.reload();
-    } catch (err) {
-        alert(err.message || String(err));
-    }
-}
-
 </script>
 </body>
 </html>

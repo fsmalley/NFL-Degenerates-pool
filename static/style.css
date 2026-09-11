@@ -750,3 +750,12 @@ tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c
 }
 
 .verified-author-mark{display:inline-block;margin-left:5px;color:#2d7a50;font-size:10px;vertical-align:middle}
+
+.member-delete-button{
+  border:1px solid #9f2f2f;
+  color:#8b1f1f;
+  background:#fff;
+}
+.member-delete-button:hover{
+  background:#fff3f3;
+}
