@@ -35,6 +35,9 @@ tbody tr:hover td{background:#fbfcfe}tbody tr:first-child td{background:linear-g
 tbody tr:first-child .rank-badge{background:var(--accent-soft);border-color:#e7c46e;color:#6f4d05}
 .player-link{background:none;border:0;padding:0;font-weight:900;color:var(--ink);text-decoration:none}.player-link:hover{color:var(--blue)}
 .team-pill{display:inline-flex;align-items:center;justify-content:center;min-width:45px;padding:7px 9px;border-radius:999px;background:linear-gradient(180deg,#f4f6f9,#e9edf3);border:1px solid #dfe5ec;font-size:12px;font-weight:900}
+.team-pill.team-win{background:#e5f6ee;border-color:#a9dfc6;color:#087a55}
+.team-pill.team-loss{background:#fdeaea;border-color:#efb3b3;color:#b42318}
+.team-pill.team-tie{background:#fff4d6;border-color:#e8cb78;color:#805d00}
 .empty-team{color:#a3abb7}.score{display:inline-block;min-width:52px;text-align:center;padding:7px 9px;border-radius:9px;font-weight:900}
 .positive{color:var(--green)}.negative{color:var(--red)}.neutral{color:#4b5563}
 .score.positive{background:var(--green-bg)}.score.negative{background:var(--red-bg)}.score.neutral{background:#f0f3f6}

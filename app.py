@@ -404,6 +404,40 @@ def draft_data():
     players = [p for p in players if not _is_unused_placeholder(p)]
     games = sb_get("games", {"select":"*","season":f"eq.{SEASON}"})
 
+    # Determine the active NFL week from the game data already loaded above.
+    # This avoids an extra database request just to color the Draft roster pills.
+    weeks = {}
+    for g in games:
+        try:
+            w = int(g.get("week") or 0)
+        except Exception:
+            continue
+        if 1 <= w <= 18:
+            weeks.setdefault(w, []).append(g)
+
+    active_week = 1
+    if weeks:
+        active_week = max(weeks)
+        for w in sorted(weeks):
+            if not all(is_game_final(g) for g in weeks[w]):
+                active_week = w
+                break
+
+    team_results = {}
+    for g in weeks.get(active_week, []):
+        if not is_game_final(g):
+            continue
+        away = (g.get("away_team") or "").strip().upper()
+        home = (g.get("home_team") or "").strip().upper()
+        winner = (g.get("winner") or "").strip().upper()
+        loser = (g.get("loser") or "").strip().upper()
+        if winner == "TIE":
+            if away: team_results[away] = "tie"
+            if home: team_results[home] = "tie"
+        else:
+            if winner: team_results[winner] = "win"
+            if loser: team_results[loser] = "loss"
+
     for p in players:
         total = 0
         count = 0
@@ -444,6 +478,8 @@ def draft_data():
         p["games_count"] = count
         p["weekly_scores"] = weekly
         p["weekly_games"] = weekly_games
+        p["team_results"] = {team: team_results.get(team, "pending") for team in selected}
+        p["active_week"] = active_week
 
     salary_config = draft_salary_config()
     salary_cap = salary_config["salary_cap"]

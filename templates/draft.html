@@ -245,8 +245,13 @@ function teamCell(player, n) {
   if (editing) {
     return `<select class="team-select" data-id="${player.id}" data-field="team${n}">${teamOptions(value)}</select>`;
   }
+  const result = (player.team_results || {})[value] || "pending";
+  const resultLabel = result === "win" ? " — game complete: win"
+    : result === "loss" ? " — game complete: loss"
+    : result === "tie" ? " — game complete: tie"
+    : " — game not complete";
   return value
-    ? `<span class="team-pill" title="${esc(teams[value] || value)}">${esc(value)}</span>`
+    ? `<span class="team-pill team-${result}" title="${esc(teams[value] || value)}${resultLabel}">${esc(value)}</span>`
     : `<span class="empty-team">—</span>`;
 }
 
