@@ -28,7 +28,6 @@ if SUPABASE_URL.endswith("/rest/v1"):
     SUPABASE_URL = SUPABASE_URL[:-8].rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
-AUTO_SYNC_TOKEN = os.getenv("AUTO_SYNC_TOKEN", "")
 
 TEAMS = {
     "ARI":"Arizona Cardinals","ATL":"Atlanta Falcons","BAL":"Baltimore Ravens","BUF":"Buffalo Bills",
@@ -909,7 +908,7 @@ def survivor_player_history(player_key):
 # Private Member Login (V2.10)
 # -----------------------------
 
-PUBLIC_ENDPOINTS = {"member_login", "health", "static", "api_auto_score_refresh"}
+PUBLIC_ENDPOINTS = {"member_login", "health", "static"}
 ACCOUNT_GATE_ENDPOINTS = {
     "member_account_login",
     "member_account_logout",
@@ -1701,7 +1700,10 @@ def api_admin_members():
                         "error":"This is the only active Commissioner account. Create or promote another Commissioner before changing this account."
                     }),400
 
-        account.update({
+        # Update only editable member fields.  Using PATCH here avoids sending the
+        # complete database row back through an UPSERT, which can fail when the
+        # table contains generated/default-managed columns or other constraints.
+        updates = {
             "username":username,
             "username_key":key,
             "display_name":display_name,
@@ -1711,17 +1713,39 @@ def api_admin_members():
             "survivor_player_key":str(payload.get("survivor_player_key") or "").strip() or member_username_key(display_name),
             "confidence_player_key":str(payload.get("confidence_player_key") or "").strip() or confidence_player_key(display_name),
             "updated_at":now
-        })
-        sb_upsert("member_accounts",[account],"id")
+        }
+        try:
+            r = requests.patch(
+                f"{SUPABASE_URL}/rest/v1/member_accounts",
+                headers=sb_headers({"Prefer":"return=representation"}),
+                params={"id":f"eq.{account_id}"},
+                json=updates,
+                timeout=20
+            )
+            r.raise_for_status()
+            saved_rows = r.json() if r.content else []
+            saved = saved_rows[0] if saved_rows else {**account, **updates}
+        except requests.HTTPError as e:
+            detail = ""
+            try:
+                body = e.response.json() or {}
+                detail = body.get("message") or body.get("details") or ""
+            except Exception:
+                detail = str(e)
+            print(f"MEMBER ACCOUNT UPDATE ERROR: {type(e).__name__}: {detail or e}", flush=True)
+            return jsonify({"ok":False,"error":"Could not save member account. "+(detail or "Please try again.")}),400
+        except Exception as e:
+            print(f"MEMBER ACCOUNT UPDATE ERROR: {type(e).__name__}: {e}", flush=True)
+            return jsonify({"ok":False,"error":"Could not save member account. Please try again."}),500
 
         # If the commissioner edited their own account, refresh the active session.
         if int(session.get("member_account_id") or 0) == account_id:
-            set_member_account_session(account)
+            set_member_account_session(saved)
 
         return jsonify({
             "ok":True,
             "message":f"Member account updated for {display_name}.",
-            "member":safe_member_account(account)
+            "member":safe_member_account(saved)
         })
 
     return jsonify({"ok":False,"error":"Unknown member-management action."}),400
@@ -2682,42 +2706,6 @@ def api_admin_score_refresh():
         })
     except Exception as e:
         print(f"MANUAL SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
-        return jsonify({"ok":False,"error":str(e)}), 500
-
-
-@app.route("/api/auto-score-refresh", methods=["POST"])
-def api_auto_score_refresh():
-    """Protected endpoint for Supabase Cron automatic NFL score refreshes."""
-    if not AUTO_SYNC_TOKEN:
-        return jsonify({"ok":False,"error":"AUTO_SYNC_TOKEN is not configured."}), 500
-
-    supplied = request.headers.get("X-Auto-Sync-Token", "")
-    if not secrets.compare_digest(str(supplied), str(AUTO_SYNC_TOKEN)):
-        return jsonify({"ok":False,"error":"Unauthorized."}), 401
-
-    payload = request.get_json(silent=True) or {}
-    try:
-        requested_week = payload.get("week")
-        week = int(requested_week) if requested_week not in (None, "") else dashboard_current_week()
-        week = max(1, min(18, week))
-
-        sync_week(week)
-        games = get_week(week)
-        result = {
-            "ok": True,
-            "week": week,
-            "game_count": len(games),
-            "final_games": sum(1 for g in games if is_game_final(g)),
-            "refreshed_at": dt.datetime.now(dt.timezone.utc).isoformat()
-        }
-        print(
-            f"AUTO SCORE REFRESH OK: week={week} "
-            f"final={result['final_games']}/{result['game_count']}",
-            flush=True
-        )
-        return jsonify(result)
-    except Exception as e:
-        print(f"AUTO SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":str(e)}), 500
 
 

@@ -451,6 +451,8 @@ function memberCard(id){return document.querySelector(`[data-member="${id}"]`);}
 async function saveMember(id){
   const card=memberCard(id),password=document.getElementById("memberAdminPassword").value;
   if(!card)return;
+  if(!password){memberAdminMessage("Enter the Commissioner password first.",false);return;}
+  memberAdminMessage("Saving member account…",true);
   const get=f=>card.querySelector(`[data-field="${f}"]`);
   const payload={
     password,action:"update",id,
