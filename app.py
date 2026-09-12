@@ -28,6 +28,7 @@ if SUPABASE_URL.endswith("/rest/v1"):
     SUPABASE_URL = SUPABASE_URL[:-8].rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+AUTO_SYNC_TOKEN = os.getenv("AUTO_SYNC_TOKEN", "")
 
 TEAMS = {
     "ARI":"Arizona Cardinals","ATL":"Atlanta Falcons","BAL":"Baltimore Ravens","BUF":"Buffalo Bills",
@@ -908,7 +909,7 @@ def survivor_player_history(player_key):
 # Private Member Login (V2.10)
 # -----------------------------
 
-PUBLIC_ENDPOINTS = {"member_login", "health", "static"}
+PUBLIC_ENDPOINTS = {"member_login", "health", "static", "api_auto_score_refresh"}
 ACCOUNT_GATE_ENDPOINTS = {
     "member_account_login",
     "member_account_logout",
@@ -2681,6 +2682,42 @@ def api_admin_score_refresh():
         })
     except Exception as e:
         print(f"MANUAL SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
+        return jsonify({"ok":False,"error":str(e)}), 500
+
+
+@app.route("/api/auto-score-refresh", methods=["POST"])
+def api_auto_score_refresh():
+    """Protected endpoint for Supabase Cron automatic NFL score refreshes."""
+    if not AUTO_SYNC_TOKEN:
+        return jsonify({"ok":False,"error":"AUTO_SYNC_TOKEN is not configured."}), 500
+
+    supplied = request.headers.get("X-Auto-Sync-Token", "")
+    if not secrets.compare_digest(str(supplied), str(AUTO_SYNC_TOKEN)):
+        return jsonify({"ok":False,"error":"Unauthorized."}), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        requested_week = payload.get("week")
+        week = int(requested_week) if requested_week not in (None, "") else dashboard_current_week()
+        week = max(1, min(18, week))
+
+        sync_week(week)
+        games = get_week(week)
+        result = {
+            "ok": True,
+            "week": week,
+            "game_count": len(games),
+            "final_games": sum(1 for g in games if is_game_final(g)),
+            "refreshed_at": dt.datetime.now(dt.timezone.utc).isoformat()
+        }
+        print(
+            f"AUTO SCORE REFRESH OK: week={week} "
+            f"final={result['final_games']}/{result['game_count']}",
+            flush=True
+        )
+        return jsonify(result)
+    except Exception as e:
+        print(f"AUTO SCORE REFRESH ERROR: {type(e).__name__}: {e}", flush=True)
         return jsonify({"ok":False,"error":str(e)}), 500
 
 
