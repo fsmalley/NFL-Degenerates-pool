@@ -338,10 +338,10 @@ def sync_week(week):
     normalized = []
     for i, game in enumerate(raw):
         row = normalize_game(game, week, i)
-        matchup = (
-            normalize_schedule_team(row.get("away_team")),
-            normalize_schedule_team(row.get("home_team"))
-        )
+        # Persist canonical team abbreviations (e.g. ESPN/NFLData LA -> app LAR).
+        row["away_team"] = normalize_schedule_team(row.get("away_team"))
+        row["home_team"] = normalize_schedule_team(row.get("home_team"))
+        matchup = (row["away_team"], row["home_team"])
         espn = espn_scoreboard.get(matchup)
         if espn:
             if espn.get("kickoff"):
@@ -427,10 +427,10 @@ def draft_data():
     for g in weeks.get(active_week, []):
         if not is_game_final(g):
             continue
-        away = (g.get("away_team") or "").strip().upper()
-        home = (g.get("home_team") or "").strip().upper()
-        winner = (g.get("winner") or "").strip().upper()
-        loser = (g.get("loser") or "").strip().upper()
+        away = normalize_schedule_team(g.get("away_team"))
+        home = normalize_schedule_team(g.get("home_team"))
+        winner = normalize_schedule_team(g.get("winner")) if str(g.get("winner") or "").strip().upper() != "TIE" else "TIE"
+        loser = normalize_schedule_team(g.get("loser"))
         if winner == "TIE":
             if away: team_results[away] = "tie"
             if home: team_results[home] = "tie"
@@ -461,11 +461,17 @@ def draft_data():
             for team in selected:
                 score = None
 
-                if g.get("winner") == team:
+                game_winner_raw = str(g.get("winner") or "").strip().upper()
+                game_winner = "TIE" if game_winner_raw == "TIE" else normalize_schedule_team(game_winner_raw)
+                game_loser = normalize_schedule_team(g.get("loser"))
+                game_away = normalize_schedule_team(g.get("away_team"))
+                game_home = normalize_schedule_team(g.get("home_team"))
+
+                if game_winner == team:
                     score = int(g["margin"])
-                elif g.get("loser") == team:
+                elif game_loser == team:
                     score = 0
-                elif g.get("winner") == "TIE" and team in (g.get("away_team"), g.get("home_team")):
+                elif game_winner == "TIE" and team in (game_away, game_home):
                     score = 0
 
                 if score is not None:
