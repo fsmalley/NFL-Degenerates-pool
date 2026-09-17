@@ -35,6 +35,17 @@
     <p>The Confidence Pool on this site is currently in testing. Until testing is complete, all official Confidence Pool picks must continue to be submitted through the Football Frenzy website. Picks entered here are for testing purposes only and will not be considered official.</p>
   </div>
 </section>
+{% if session.get('member_role') == 'COMMISSIONER' %}
+<section class="card confidence-commissioner-entry">
+  <div class="section-head"><div><div class="eyebrow dark-eyebrow">COMMISSIONER</div><h2>Enter Picks for Player</h2>
+  <p>Select a player to enter or edit upcoming Confidence picks on their behalf. Normal kickoff locks still apply.</p></div></div>
+  <div class="confidence-entry-head">
+    <label><span>Player</span><select id="commissionerPlayer"><option value="">My Picks</option></select></label>
+    <button id="openPlayerEntry" class="secondary" type="button">Open Pick Sheet</button>
+  </div>
+  <small>Use this for testing or phone-in picks. Games that have already kicked off cannot be changed here.</small>
+</section>
+{% endif %}
 <details class="player-instructions"><summary><span>How to Save Confidence Picks</span><small>Player instructions</small></summary><div class="player-instructions-body"><ol><li>Pick any upcoming game you are ready to play; you do not need to finish the entire week at once.</li><li>Give each saved pick a unique <strong>Confidence Value</strong>. A value already used on another saved game cannot be reused.</li><li>Click <strong>Save Picks</strong>. Return later to finish or change games that have not kicked off.</li><li>At each game's scheduled kickoff, that game locks and every player's saved pick for that game becomes visible.</li><li>A missed game cannot be backfilled after kickoff. Enter the final-game tiebreaker before that final game begins.</li></ol></div></details>
 
 <div id="status" class="status hidden"></div>
@@ -60,7 +71,7 @@
 <button id="saveEntry" class="primary confidence-save" type="button">Save Week {{week}} Picks</button></section>
 </main>
 <script>
-let week={{week}},games=[],lastGameId=null,existingPicks={};
+let week={{week}},games=[],lastGameId=null,existingPicks={},targetPlayerKey="";
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
 function fmtKickoff(value){if(!value)return "";const d=new Date(value);if(Number.isNaN(d.getTime()))return value;return new Intl.DateTimeFormat("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York",timeZoneName:"short"}).format(d);}
@@ -98,13 +109,24 @@ async function loadWeek(){
   const lockedCount=games.filter(g=>g.confidence_locked).length;$("lockBanner").innerHTML=lockedCount?`<strong>${lockedCount} of ${games.length} games locked.</strong> Those picks are revealed; remaining games stay editable until their own kickoff.`:`<strong>All ${games.length} games are open.</strong> Each game locks and reveals picks at its scheduled kickoff.`;
   const lg=games.find(g=>String(g.id)===String(lastGameId));$("tiebreaker").disabled=!!lg?.confidence_locked;$("lastGameText").textContent=lg?`${lg.away_team} ${lg.away_name||""} @ ${lg.home_team} ${lg.home_name||""} — ${fmtKickoff(lg.game_date)}`:"Final game not available yet.";renderGames();await loadEntry(true);}catch(e){showStatus(e.message||"Could not load week.","error");}}
 async function loadEntry(silent=false){
-  try{const r=await fetch(`/api/confidence/entry?week=${week}`);const d=await readJson(r);if(!r.ok)throw new Error(d.error||"Could not load entry.");if(d.player_name)$("playerName").value=d.player_name;existingPicks={};(d.picks||[]).forEach(p=>existingPicks[String(p.game_id)]=p);$("tiebreaker").value=d.entry?.tiebreaker_total??"";renderGames();if(!silent)showStatus(d.entry?`Week ${week} saved picks loaded.`:`No saved Week ${week} picks yet.`,"ok");}catch(e){if(!silent)showStatus(e.message||"Could not load entry.","error");}}
+  try{const target=targetPlayerKey?`&player_key=${encodeURIComponent(targetPlayerKey)}`:"";const r=await fetch(`/api/confidence/entry?week=${week}${target}`);const d=await readJson(r);if(!r.ok)throw new Error(d.error||"Could not load entry.");if(d.player_name)$("playerName").value=d.player_name;existingPicks={};(d.picks||[]).forEach(p=>existingPicks[String(p.game_id)]=p);$("tiebreaker").value=d.entry?.tiebreaker_total??"";renderGames();if(!silent)showStatus(d.entry?`Week ${week} saved picks loaded.`:`No saved Week ${week} picks yet.`,"ok");}catch(e){if(!silent)showStatus(e.message||"Could not load entry.","error");}}
 async function saveEntry(){
   const picks=[];for(const g of games){const team=document.querySelector(`input[name="game-${CSS.escape(String(g.id))}"]:checked`)?.value||"";const value=Number(document.querySelector(`select[data-game="${CSS.escape(String(g.id))}"]`)?.value||0);if(team||value){if(!team||!value){showStatus(`For Game ${games.indexOf(g)+1}, choose both a winner and a confidence value.`,"error");return;}picks.push({game_id:String(g.id),team,confidence_value:value});}}
   const vals=picks.map(p=>p.confidence_value);if(new Set(vals).size!==vals.length){showStatus("Each confidence value can be used only once.","error");return;}
   const tiebreaker_total=$("tiebreaker").value===""?null:Number($("tiebreaker").value);if(!picks.length&&tiebreaker_total===null){showStatus("Choose at least one game before saving.","error");return;}
   $("saveEntry").disabled=true;$("saveEntry").textContent="Saving…";
-  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week,picks,tiebreaker_total})});const d=await readJson(r);if(!r.ok)throw new Error(d.error||"Picks could not be saved.");showStatus("✓ "+d.message,"ok");await loadWeek();}catch(e){showStatus(e.message||"Picks could not be saved.","error");}finally{$("saveEntry").disabled=false;$("saveEntry").textContent=`Save Week ${week} Picks`;}
+  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week,picks,tiebreaker_total,player_key:targetPlayerKey||null})});const d=await readJson(r);if(!r.ok)throw new Error(d.error||"Picks could not be saved.");showStatus("✓ "+d.message,"ok");await loadWeek();}catch(e){showStatus(e.message||"Picks could not be saved.","error");}finally{$("saveEntry").disabled=false;$("saveEntry").textContent=`Save Week ${week} Picks`;}
 }
-$("week").addEventListener("change",loadWeek);$("loadEntry").addEventListener("click",loadEntry);$("saveEntry").addEventListener("click",saveEntry);loadWeek();
+async function loadCommissionerPlayers(){
+  const sel=$("commissionerPlayer");if(!sel)return;
+  try{const r=await fetch("/api/confidence/admin/players");const d=await readJson(r);if(!r.ok)throw new Error(d.error||"Could not load players.");
+    sel.innerHTML='<option value="">My Picks</option>'+(d.players||[]).map(p=>`<option value="${esc(p.player_key)}">${esc(p.player_name)}</option>`).join("");
+  }catch(e){showStatus(e.message||"Could not load Commissioner player list.","error");}
+}
+function openCommissionerPlayer(){
+  const sel=$("commissionerPlayer");if(!sel)return;targetPlayerKey=sel.value||"";existingPicks={};loadWeek();
+}
+$("week").addEventListener("change",loadWeek);$("loadEntry").addEventListener("click",loadEntry);$("saveEntry").addEventListener("click",saveEntry);
+if($("openPlayerEntry"))$("openPlayerEntry").addEventListener("click",openCommissionerPlayer);
+loadCommissionerPlayers();loadWeek();
 </script></body></html>

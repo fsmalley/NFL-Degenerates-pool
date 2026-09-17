@@ -2287,10 +2287,97 @@ def api_confidence_week(week):
     })
 
 
+def confidence_request_identity(payload=None):
+    """Resolve the Confidence identity for this request.
+
+    Normal members can act only as themselves. An authenticated Commissioner may
+    explicitly select another linked Confidence identity for phone-in picks/testing.
+    """
+    player_name, key = member_pool_identity("confidence")
+    payload = payload or {}
+    requested_key = str(
+        (request.args.get("player_key") if request.method == "GET" else payload.get("player_key")) or ""
+    ).strip()
+    if not requested_key:
+        return player_name, key, False
+    if not require_commissioner_account():
+        return None, None, False
+
+    # Resolve only identities already linked to an active member account. This
+    # prevents a Commissioner request from inventing an arbitrary player key.
+    rows = sb_get("member_accounts", {
+        "select":"display_name,confidence_player_key,active",
+        "active":"eq.true",
+        "order":"display_name.asc"
+    })
+    for row in rows:
+        display = str(row.get("display_name") or "").strip()
+        linked = str(row.get("confidence_player_key") or "").strip() or confidence_player_key(display)
+        if linked == requested_key:
+            return display, linked, True
+    # Also allow an established Confidence player record even if that legacy
+    # player has not yet been linked to a member account.
+    pool_rows = sb_get("confidence_players", {
+        "select":"player_key,player_name",
+        "season":f"eq.{SEASON}",
+        "player_key":f"eq.{requested_key}",
+        "limit":"1"
+    })
+    if pool_rows:
+        row=pool_rows[0]
+        return str(row.get("player_name") or requested_key), str(row.get("player_key") or requested_key), True
+    return None, None, False
+
+
+@app.route("/api/confidence/admin/players")
+def api_confidence_admin_players():
+    if not require_commissioner_account():
+        return jsonify({"ok":False,"error":"Commissioner access required."}),403
+    try:
+        rows = sb_get("member_accounts", {
+            "select":"display_name,confidence_player_key,active",
+            "active":"eq.true",
+            "order":"display_name.asc"
+        })
+        players=[]
+        seen=set()
+        for row in rows:
+            name=str(row.get("display_name") or "").strip()
+            key=str(row.get("confidence_player_key") or "").strip() or confidence_player_key(name)
+            if name and key and key not in seen:
+                players.append({"player_name":name,"player_key":key})
+                seen.add(key)
+        # Include established legacy Confidence players that may not yet have a
+        # member-account link, so the Commissioner can still enter a phone-in pick.
+        pool_rows=sb_get("confidence_players", {
+            "select":"player_key,player_name",
+            "season":f"eq.{SEASON}",
+            "order":"player_name.asc"
+        })
+        for row in pool_rows:
+            name=str(row.get("player_name") or "").strip()
+            key=str(row.get("player_key") or "").strip()
+            if name and key and key not in seen:
+                players.append({"player_name":name,"player_key":key})
+                seen.add(key)
+        players.sort(key=lambda x: x["player_name"].lower())
+        return jsonify({"ok":True,"players":players})
+    except Exception:
+        app.logger.exception("Could not load Confidence commissioner player list")
+        return jsonify({"ok":False,"error":"Could not load the Confidence player list."}),500
+
+
 @app.route("/api/confidence/entry", methods=["GET","POST"])
 def api_confidence_entry():
-    player_name, key = member_pool_identity("confidence")
+    payload=request.get_json(silent=True) or {} if request.method == "POST" else {}
+    try:
+        player_name, key, commissioner_entry = confidence_request_identity(payload)
+    except Exception:
+        app.logger.exception("Could not resolve Confidence request identity")
+        return jsonify({"ok":False,"error":"Could not load the selected Confidence identity."}),500
     if not player_name or not key:
+        if (request.args.get("player_key") if request.method == "GET" else payload.get("player_key")):
+            return jsonify({"ok":False,"error":"That Confidence player is not available for Commissioner entry."}),403
         return jsonify({"ok":False,"error":"This account is not linked to a Confidence identity."}),400
 
     if request.method == "GET":
@@ -2301,10 +2388,10 @@ def api_confidence_entry():
             "entry":entry,
             "picks":picks,
             "player_name":player_name,
+            "commissioner_entry":commissioner_entry,
             "testing":True
         })
 
-    payload=request.get_json(silent=True) or {}
     try:
         week=int(payload.get("week") or 0)
     except Exception:
@@ -2424,6 +2511,7 @@ def api_confidence_entry():
         "message":f"Week {week} Confidence picks saved for {player_name}.",
         "saved_picks":len(combined),
         "game_count":len(games),
+        "commissioner_entry":commissioner_entry,
         "testing":True
     })
 
