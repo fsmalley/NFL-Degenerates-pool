@@ -2306,7 +2306,15 @@ def api_confidence_entry():
     if tiebreaker < 0 or tiebreaker > 200:
         return jsonify({"ok":False,"error":"Tiebreaker total must be between 0 and 200."}),400
 
-    games=confidence_week_games(week,refresh=True)
+    # The Confidence page already refreshes the weekly schedule when it loads.
+    # Do not call external NFL/ESPN sources again during submission; a slow
+    # upstream request can make Gunicorn/Render return an HTML timeout page
+    # while the browser is expecting JSON. Validate against the stored week.
+    try:
+        games=confidence_week_games(week,refresh=False)
+    except Exception as e:
+        app.logger.exception("Confidence submission could not load stored Week %s games", week)
+        return jsonify({"ok":False,"error":f"Could not load the stored Week {week} schedule. Please reload the Confidence page and try again."}),500
     if not games:
         return jsonify({"ok":False,"error":f"No NFL games are loaded for Week {week}."}),400
     locked,lock_time=confidence_week_lock(week,games)
@@ -2344,37 +2352,41 @@ def api_confidence_entry():
         }),400
 
     now=dt.datetime.now(dt.timezone.utc).isoformat()
-    player=get_confidence_player(key)
-    if not player:
-        sb_upsert("confidence_players",[{
+    try:
+        player=get_confidence_player(key)
+        if not player:
+            sb_upsert("confidence_players",[{
+                "season":SEASON,
+                "player_key":key,
+                "player_name":player_name,
+                "pin_hash":hash_survivor_pin(secrets.token_urlsafe(24)),
+                "created_at":now,
+                "updated_at":now
+            }],"season,player_key")
+
+        sb_upsert("confidence_entries",[{
             "season":SEASON,
+            "week":week,
             "player_key":key,
             "player_name":player_name,
-            "pin_hash":hash_survivor_pin(secrets.token_urlsafe(24)),
-            "created_at":now,
+            "tiebreaker_total":tiebreaker,
+            "submitted_at":now,
             "updated_at":now
-        }],"season,player_key")
+        }],"season,week,player_key")
 
-    sb_upsert("confidence_entries",[{
-        "season":SEASON,
-        "week":week,
-        "player_key":key,
-        "player_name":player_name,
-        "tiebreaker_total":tiebreaker,
-        "submitted_at":now,
-        "updated_at":now
-    }],"season,week,player_key")
-
-    pick_rows=[{
-        "season":SEASON,
-        "week":week,
-        "player_key":key,
-        "game_id":game_id,
-        "team":team,
-        "confidence_value":value,
-        "updated_at":now
-    } for game_id,team,value in rows]
-    sb_upsert("confidence_picks",pick_rows,"season,week,player_key,game_id")
+        pick_rows=[{
+            "season":SEASON,
+            "week":week,
+            "player_key":key,
+            "game_id":game_id,
+            "team":team,
+            "confidence_value":value,
+            "updated_at":now
+        } for game_id,team,value in rows]
+        sb_upsert("confidence_picks",pick_rows,"season,week,player_key,game_id")
+    except Exception as e:
+        app.logger.exception("Confidence Week %s submission save failed for %s", week, key)
+        return jsonify({"ok":False,"error":"The Confidence entry could not be saved. Please try again. If the problem continues, contact the commissioner."}),500
 
     return jsonify({
         "ok":True,

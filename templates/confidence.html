@@ -117,8 +117,20 @@ async function saveEntry(){
   const vals=picks.map(p=>p.confidence_value);if(vals.some(v=>!v)||new Set(vals).size!==games.length){showStatus(`Use every confidence value from 1 through ${games.length} exactly once.`,"error");return;}
   if($("tiebreaker").value===""){showStatus("Enter your final-game total score tiebreaker.","error");return;}
   const tiebreaker_total=Number($("tiebreaker").value);$("saveEntry").disabled=true;$("saveEntry").textContent="Saving…";
-  try{const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week,picks,tiebreaker_total})});const d=await r.json();if(!r.ok)throw new Error(d.error||"Entry could not be saved.");showStatus("✓ "+d.message,"ok");await loadEntry();}
-  catch(e){showStatus(e.message,"error");}finally{if(!locked){$("saveEntry").disabled=false;$("saveEntry").textContent=`Submit Week ${week} Entry`;}}
+  try{
+    const r=await fetch("/api/confidence/entry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({week,picks,tiebreaker_total})});
+    const contentType=r.headers.get("content-type")||"";
+    let d={};
+    if(contentType.includes("application/json")){
+      d=await r.json();
+    }else{
+      await r.text();
+      throw new Error(`The server returned an unexpected response (${r.status}). Please try again.`);
+    }
+    if(!r.ok)throw new Error(d.error||"Entry could not be saved.");
+    showStatus("✓ "+d.message,"ok");await loadEntry();
+  }
+  catch(e){showStatus(e.message||"Entry could not be saved.","error");}finally{if(!locked){$("saveEntry").disabled=false;$("saveEntry").textContent=`Submit Week ${week} Entry`;}}
 }
 $("week").addEventListener("change",loadWeek);$("loadEntry").addEventListener("click",loadEntry);$("saveEntry").addEventListener("click",saveEntry);loadWeek();
 </script></body></html>
