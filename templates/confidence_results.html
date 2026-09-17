@@ -35,7 +35,7 @@
 </section>
 <section class="card"><div class="confidence-results-toolbar"><label><span>Week</span><select id="week">{% for w in range(1,19) %}<option value="{{w}}" {% if w==week %}selected{% endif %}>Week {{w}}</option>{% endfor %}</select></label><div id="revealNote" class="survivor-timing-banner">Loading…</div></div></section>
 <section class="summary-grid"><div class="summary-card"><span>Entries</span><strong id="entries">—</strong></div><div class="summary-card"><span>Games</span><strong id="games">—</strong></div><div class="summary-card"><span>Leader</span><strong id="leader">—</strong></div><div class="summary-card"><span>Final-Game Actual</span><strong id="actual">—</strong></div></section>
-<section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY LEADERBOARD</div><h2 id="title">Week {{week}} Results</h2><p>Click an entry after picks are revealed to see every selection and confidence result.</p></div></div>
+<section class="card"><div class="section-head"><div><div class="eyebrow dark-eyebrow">WEEKLY LEADERBOARD</div><h2 id="title">Week {{week}} Results</h2><p>Click a player to see selections for games that have already kicked off. Future-game picks remain private.</p></div></div>
 <div class="tablewrap"><table class="confidence-results-table"><thead><tr><th>Rank</th><th>Player</th><th>Points</th><th>Tiebreaker Pick</th><th>Difference</th><th>Games Decided</th></tr></thead><tbody id="body"><tr><td colspan="6">Loading…</td></tr></tbody></table></div></section>
 <section id="detailPanel" class="card hidden"><div class="section-head"><div><div class="eyebrow dark-eyebrow">ENTRY BREAKDOWN</div><h2 id="detailTitle">Player</h2></div><button id="closeDetail" class="ghost">Close</button></div><div id="detailGrid" class="confidence-detail-grid"></div></section>
 </main><script>
@@ -47,7 +47,7 @@ function render(){
   if(!rows.length){$("body").innerHTML='<tr><td colspan="6">No Confidence entries submitted for this week.</td></tr>';return;}
   $("body").innerHTML=rows.map((r,i)=>r.hidden?`<tr><td>—</td><td><strong>${esc(r.player_name)}</strong></td><td colspan="4"><span class="survivor-status submitted">✓ Entry Submitted — Picks Hidden</span></td></tr>`:
   `<tr class="confidence-result-row" data-index="${i}"><td><span class="rank-badge">${r.rank}</span></td><td><button class="player-link">${esc(r.player_name)}</button></td><td><strong>${r.points}</strong></td><td>${r.tiebreaker_total??"—"}</td><td>${r.tiebreaker_diff??"—"}</td><td>${r.decided_games} / ${r.game_count}</td></tr>`).join("");
-  if(locked)document.querySelectorAll(".confidence-result-row").forEach(tr=>tr.querySelector(".player-link").onclick=()=>showDetail(rows[Number(tr.dataset.index)]));
+  document.querySelectorAll(".confidence-result-row").forEach(tr=>tr.querySelector(".player-link").onclick=()=>showDetail(rows[Number(tr.dataset.index)]));
 }
 function showDetail(r){
   $("detailTitle").textContent=r.player_name;
@@ -58,7 +58,7 @@ async function load(){
   week=Number($("week").value);const r=await fetch("/api/confidence/results/"+week);const d=await r.json();
   if(!r.ok){$("body").innerHTML=`<tr><td colspan="6">${esc(d.error||"Could not load results.")}</td></tr>`;return;}
   rows=d.results||[];locked=!!d.locked;$("games").textContent=d.game_count||0;$("actual").textContent=d.actual_tiebreaker??"—";
-  $("revealNote").innerHTML=locked?`<strong>Picks are revealed.</strong> Week ${week} locked when its first game began.`:`<strong>Picks remain private.</strong> They will appear after the first game begins${d.lock_time?" at "+fmt(d.lock_time):""}.`;render();
+  $("revealNote").innerHTML=locked?`<strong>Individual-game reveal is active.</strong> Picks appear as each game reaches its scheduled kickoff; future-game picks remain private.`:`<strong>Picks remain private.</strong> Each game will reveal its picks at that game’s scheduled kickoff.`;render();
 }
 $("week").onchange=load;$("closeDetail").onclick=()=>$("detailPanel").classList.add("hidden");load();
 </script></body></html>

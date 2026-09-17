@@ -2030,6 +2030,21 @@ def confidence_week_lock(week, games=None, now=None):
     return started, None
 
 
+def confidence_game_locked(game, now=None):
+    """Return True once this individual game's scheduled kickoff has arrived."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    kickoff = parse_game_datetime(game.get("game_date"))
+    if kickoff is not None:
+        return now >= kickoff
+    # Fallback for malformed/missing kickoff data: once the source shows activity, lock it.
+    return (
+        is_game_final(game) or
+        str(game.get("status") or "").lower() in ("in_progress", "live", "halftime") or
+        game.get("away_score") is not None or
+        game.get("home_score") is not None
+    )
+
+
 def confidence_last_game(games):
     if not games:
         return None
@@ -2267,7 +2282,7 @@ def api_confidence_week(week):
         "locked":locked,
         "lock_time":lock_time.isoformat() if lock_time else None,
         "last_game_id":str(last.get("id")) if last else None,
-        "games":games,
+        "games":[{**g, "confidence_locked":confidence_game_locked(g)} for g in games],
         "sync_error":sync_error
     })
 
@@ -2295,102 +2310,119 @@ def api_confidence_entry():
     except Exception:
         week=0
     picks=payload.get("picks") or []
-    tiebreaker=payload.get("tiebreaker_total")
+    tiebreaker_raw=payload.get("tiebreaker_total")
 
     if week not in range(1,19):
         return jsonify({"ok":False,"error":"Choose a valid NFL week."}),400
-    try:
-        tiebreaker=int(tiebreaker)
-    except Exception:
-        return jsonify({"ok":False,"error":"Enter the total score for the final game tiebreaker."}),400
-    if tiebreaker < 0 or tiebreaker > 200:
-        return jsonify({"ok":False,"error":"Tiebreaker total must be between 0 and 200."}),400
 
-    # The Confidence page already refreshes the weekly schedule when it loads.
-    # Do not call external NFL/ESPN sources again during submission; a slow
-    # upstream request can make Gunicorn/Render return an HTML timeout page
-    # while the browser is expecting JSON. Validate against the stored week.
+    # Tiebreaker is optional during partial saves. Once the final game kicks off,
+    # an existing value is preserved and can no longer be changed.
+    tiebreaker=None
+    if tiebreaker_raw not in (None, ""):
+        try:
+            tiebreaker=int(tiebreaker_raw)
+        except Exception:
+            return jsonify({"ok":False,"error":"Tiebreaker total must be a whole number."}),400
+        if tiebreaker < 0 or tiebreaker > 200:
+            return jsonify({"ok":False,"error":"Tiebreaker total must be between 0 and 200."}),400
+
     try:
         games=confidence_week_games(week,refresh=False)
-    except Exception as e:
-        app.logger.exception("Confidence submission could not load stored Week %s games", week)
+    except Exception:
+        app.logger.exception("Confidence partial save could not load stored Week %s games", week)
         return jsonify({"ok":False,"error":f"Could not load the stored Week {week} schedule. Please reload the Confidence page and try again."}),500
     if not games:
         return jsonify({"ok":False,"error":f"No NFL games are loaded for Week {week}."}),400
-    locked,lock_time=confidence_week_lock(week,games)
-    if locked:
-        return jsonify({"ok":False,"error":f"Week {week} Confidence entries are locked because the first game has started."}),403
 
-    expected_ids={str(g.get("id")) for g in games}
-    if len(picks) != len(games):
-        return jsonify({"ok":False,"error":f"Make a selection for all {len(games)} games."}),400
+    game_map={str(g.get("id")):g for g in games}
+    expected_ids=set(game_map)
+    existing_entry, existing_rows=confidence_entry(key,week)
+    existing={str(p.get("game_id")):p for p in existing_rows}
 
     seen_games=set()
-    values=[]
-    rows=[]
+    submitted=[]
     for pick in picks:
         game_id=str(pick.get("game_id") or "")
         team=str(pick.get("team") or "").upper()
         try:
-            value=int(pick.get("confidence_value"))
+            value=int(pick.get("confidence_value") or 0)
         except Exception:
             value=0
         if game_id not in expected_ids or game_id in seen_games:
             return jsonify({"ok":False,"error":"The submitted game list is invalid."}),400
-        game=next((g for g in games if str(g.get("id"))==game_id),None)
-        if not game or team not in (g.get("away_team"),g.get("home_team")):
-            return jsonify({"ok":False,"error":"Choose one of the two teams playing in every game."}),400
+        game=game_map[game_id]
+        if team not in (str(game.get("away_team") or "").upper(),str(game.get("home_team") or "").upper()):
+            return jsonify({"ok":False,"error":"Choose one of the two teams playing in each saved game."}),400
+        if value not in range(1,len(games)+1):
+            return jsonify({"ok":False,"error":f"Confidence values must be between 1 and {len(games)}."}),400
         seen_games.add(game_id)
-        values.append(value)
-        rows.append((game_id,team,value))
+        submitted.append((game_id,team,value))
 
-    required=set(range(1,len(games)+1))
-    if set(values) != required or len(values) != len(set(values)):
-        return jsonify({
-            "ok":False,
-            "error":f"Use every confidence value from 1 through {len(games)} exactly once."
-        }),400
+    # A confidence number may be used only once across all saved picks, including
+    # games that are already locked. Locked picks themselves are immutable.
+    combined={gid:(str(row.get("team") or "").upper(),int(row.get("confidence_value") or 0)) for gid,row in existing.items()}
+    for game_id,team,value in submitted:
+        game=game_map[game_id]
+        if confidence_game_locked(game):
+            old=combined.get(game_id)
+            if not old:
+                return jsonify({"ok":False,"error":f"That game has already kicked off and can no longer be picked."}),403
+            if old != (team,value):
+                return jsonify({"ok":False,"error":f"A saved pick for a game that has already kicked off cannot be changed."}),403
+        combined[game_id]=(team,value)
+
+    values=[value for team,value in combined.values() if value]
+    if len(values) != len(set(values)):
+        return jsonify({"ok":False,"error":"Each confidence value can be used only once for the week, including locked games."}),400
+
+    last_game=confidence_last_game(games)
+    if last_game and confidence_game_locked(last_game):
+        old_tb=existing_entry.get("tiebreaker_total") if existing_entry else None
+        if tiebreaker is not None and old_tb is not None and int(old_tb) != tiebreaker:
+            return jsonify({"ok":False,"error":"The final-game tiebreaker is locked because the final game has kicked off."}),403
+        if old_tb is not None:
+            tiebreaker=int(old_tb)
+    elif tiebreaker is None and existing_entry and existing_entry.get("tiebreaker_total") is not None:
+        tiebreaker=int(existing_entry.get("tiebreaker_total"))
+
+    if not submitted and tiebreaker is None:
+        return jsonify({"ok":False,"error":"Choose at least one game or enter the tiebreaker before saving."}),400
 
     now=dt.datetime.now(dt.timezone.utc).isoformat()
     try:
         player=get_confidence_player(key)
         if not player:
             sb_upsert("confidence_players",[{
-                "season":SEASON,
-                "player_key":key,
-                "player_name":player_name,
+                "season":SEASON,"player_key":key,"player_name":player_name,
                 "pin_hash":hash_survivor_pin(secrets.token_urlsafe(24)),
-                "created_at":now,
-                "updated_at":now
+                "created_at":now,"updated_at":now
             }],"season,player_key")
 
-        sb_upsert("confidence_entries",[{
-            "season":SEASON,
-            "week":week,
-            "player_key":key,
-            "player_name":player_name,
-            "tiebreaker_total":tiebreaker,
-            "submitted_at":now,
+        entry_row={
+            "season":SEASON,"week":week,"player_key":key,"player_name":player_name,
+            "submitted_at":existing_entry.get("submitted_at") if existing_entry else now,
             "updated_at":now
-        }],"season,week,player_key")
+        }
+        if tiebreaker is not None:
+            entry_row["tiebreaker_total"]=tiebreaker
+        sb_upsert("confidence_entries",[entry_row],"season,week,player_key")
 
+        # Upsert only games that have not kicked off. Locked games were validated
+        # above but are deliberately not written again.
         pick_rows=[{
-            "season":SEASON,
-            "week":week,
-            "player_key":key,
-            "game_id":game_id,
-            "team":team,
-            "confidence_value":value,
-            "updated_at":now
-        } for game_id,team,value in rows]
-        sb_upsert("confidence_picks",pick_rows,"season,week,player_key,game_id")
-    except Exception as e:
-        app.logger.exception("Confidence Week %s submission save failed for %s", week, key)
-        return jsonify({"ok":False,"error":"The Confidence entry could not be saved. Please try again. If the problem continues, contact the commissioner."}),500
+            "season":SEASON,"week":week,"player_key":key,"game_id":game_id,
+            "team":team,"confidence_value":value,"updated_at":now
+        } for game_id,team,value in submitted if not confidence_game_locked(game_map[game_id])]
+        if pick_rows:
+            sb_upsert("confidence_picks",pick_rows,"season,week,player_key,game_id")
+    except Exception:
+        app.logger.exception("Confidence Week %s partial save failed for %s", week, key)
+        return jsonify({"ok":False,"error":"The Confidence picks could not be saved. Please try again. If the problem continues, contact the commissioner."}),500
 
     return jsonify({
         "ok":True,
-        "message":f"Week {week} TEST Confidence entry saved for {player_name}. Official picks must still be submitted through Football Frenzy.",
+        "message":f"Week {week} Confidence picks saved for {player_name}.",
+        "saved_picks":len(combined),
         "game_count":len(games),
         "testing":True
     })
@@ -2401,31 +2433,31 @@ def api_confidence_results(week):
     week=max(1,min(18,week))
     try:
         rows,games,actual,last=confidence_week_rows(week,refresh=True)
-        locked,lock_time=confidence_week_lock(week,games)
-        public_rows=rows
-        if not locked:
-            public_rows=[]
-            for row in rows:
-                public_rows.append({
-                    "player_name":row.get("player_name"),
-                    "points":0,
-                    "decided_games":0,
-                    "game_count":row.get("game_count"),
-                    "rank":None,
-                    "tiebreaker_total":None,
-                    "tiebreaker_diff":None,
-                    "picks":[],
-                    "hidden":True
-                })
+        now=dt.datetime.now(dt.timezone.utc)
+        game_map={str(g.get("id")):g for g in games}
+        any_started=any(confidence_game_locked(g,now) for g in games)
+        public_rows=[]
+        for row in rows:
+            revealed=[]
+            for pick in row.get("picks") or []:
+                game=game_map.get(str(pick.get("game_id")))
+                if game and confidence_game_locked(game,now):
+                    revealed.append(pick)
+            public_rows.append({
+                **row,
+                "picks":revealed,
+                # Do not reveal the tiebreaker until its final scheduled game locks.
+                "tiebreaker_total":row.get("tiebreaker_total") if last and confidence_game_locked(last,now) else None,
+                "tiebreaker_diff":row.get("tiebreaker_diff") if last and confidence_game_locked(last,now) else None,
+                "hidden":False,
+                "revealed_picks":len(revealed)
+            })
         return jsonify({
-            "ok":True,
-            "week":week,
-            "results":public_rows,
-            "game_count":len(games),
-            "actual_tiebreaker":actual if locked else None,
-            "last_game":last,
-            "locked":locked,
-            "lock_time":lock_time.isoformat() if lock_time else None
+            "ok":True,"week":week,"results":public_rows,"game_count":len(games),
+            "actual_tiebreaker":actual if last and confidence_game_locked(last,now) else None,
+            "last_game":last,"locked":any_started,
+            "lock_time":min((parse_game_datetime(g.get("game_date")) for g in games if parse_game_datetime(g.get("game_date")) is not None),default=None).isoformat() if games else None,
+            "reveal_mode":"individual_game"
         })
     except Exception as e:
         print(f"CONFIDENCE RESULTS ERROR: {type(e).__name__}: {e}",flush=True)
