@@ -311,63 +311,60 @@ def fetch_espn_week_schedule(week):
 
 
 def sync_week(week):
-    r = requests.get(
-        f"{API_BASE}/v1/games",
-        params={"season":SEASON,"week":week,"game_type":"REG","limit":100},
-        timeout=20
-    )
-    r.raise_for_status()
-    raw = games_from(r.json())
-    if not raw:
-        r = requests.get(
-            f"{API_BASE}/v1/games",
-            params={"season":SEASON,"limit":1000},
-            timeout=20
-        )
-        r.raise_for_status()
-        raw = [g for g in games_from(r.json()) if int(g.get("week",-1) or -1) == week]
+    """Refresh one regular-season week from ESPN without relying on NFLData.
 
-    # NFLData remains the base/fallback source. ESPN supplies the current
-    # scoreboard state and kickoff timestamp when the matchup is available.
-    try:
-        espn_scoreboard = fetch_espn_week_scoreboard(week)
-    except Exception as e:
-        espn_scoreboard = {}
-        print(f"ESPN SCOREBOARD WARNING WEEK {week}: {type(e).__name__}: {e}", flush=True)
+    Match existing Supabase rows by teams to retain their original IDs and
+    prevent duplicate games when migrating from the older NFLData feed.
+    """
+    week = int(week)
+    scoreboard = fetch_espn_week_scoreboard(week)  # Failure must not erase stored games.
+    # The scoreboard contains both directions for lookup; keep one per game.
+    matchups = {}
+    for (away, home), info in scoreboard.items():
+        if (home, away) in matchups:
+            continue
+        matchups[(away, home)] = info
 
-    normalized = []
-    for i, game in enumerate(raw):
-        row = normalize_game(game, week, i)
-        # Persist canonical team abbreviations (e.g. ESPN/NFLData LA -> app LAR).
-        row["away_team"] = normalize_schedule_team(row.get("away_team"))
-        row["home_team"] = normalize_schedule_team(row.get("home_team"))
-        matchup = (row["away_team"], row["home_team"])
-        espn = espn_scoreboard.get(matchup)
-        if espn:
-            if espn.get("kickoff"):
-                row["game_date"] = espn["kickoff"]
-            if espn.get("away_score") is not None:
-                row["away_score"] = espn["away_score"]
-            if espn.get("home_score") is not None:
-                row["home_score"] = espn["home_score"]
+    if not matchups:
+        raise ValueError(f"ESPN returned no games for week {week}; existing games were not changed.")
+    existing = sb_get("games", {"select": "*", "season": f"eq.{SEASON}", "week": f"eq.{week}"})
+    by_matchup = {}
+    for row in existing:
+        key = (normalize_schedule_team(row.get("away_team")),
+               normalize_schedule_team(row.get("home_team")))
+        by_matchup[key] = row
 
-            if espn.get("completed"):
-                row["status"] = "final"
-                winner, loser, margin = calculate_result(
-                    row.get("away_team"), row.get("home_team"),
-                    row.get("away_score"), row.get("home_score")
-                )
-                row["winner"] = winner
-                row["loser"] = loser
-                row["margin"] = margin
-            elif espn.get("state") == "in":
-                row["status"] = "in_progress"
-                row["winner"] = None
-                row["loser"] = None
-                row["margin"] = None
-        normalized.append(row)
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    updates = []
+    for (away, home), info in matchups.items():
+        prior = by_matchup.get((away, home), {})
+        # Retain old IDs so existing data and references remain stable.
+        row = {
+            "id": prior.get("id") or f"espn-{SEASON}-{week}-{away}-{home}",
+            "season": SEASON,
+            "week": week,
+            "game_date": info.get("kickoff") or prior.get("game_date") or "",
+            "away_team": away,
+            "home_team": home,
+            "away_score": info.get("away_score"),
+            "home_score": info.get("home_score"),
+            "updated_at": now,
+        }
+        if info.get("completed"):
+            row["status"] = "final"
+            row["winner"], row["loser"], row["margin"] = calculate_result(
+                away, home, row["away_score"], row["home_score"])
+        elif info.get("state") == "in":
+            row.update(status="in_progress", winner=None, loser=None, margin=None)
+        else:
+            row.update(status="scheduled", winner=None, loser=None, margin=None)
+            # ESPN may omit scores before kickoff. Do not fabricate scores.
+        updates.append(row)
 
-    sb_upsert("games", normalized, "id")
+    # Reject obviously incomplete weeks rather than silently losing games.
+    if len(updates) < 10:
+        raise ValueError(f"ESPN returned only {len(updates)} games for week {week}; no changes saved.")
+    sb_upsert("games", updates, "id")
 
 
 def get_week(week):
